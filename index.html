@@ -51,6 +51,8 @@
   button:hover{ background:var(--accent-soft); border-color:var(--accent); }
   button.primary{ background:var(--accent); color:#fdfaf5; border-color:var(--accent); }
   button.primary:hover{ background:#632f25; }
+  button.danger{ color:#b3261e; border-color:#e0b4ae; }
+  button.danger:hover{ background:#fbeae8; border-color:#b3261e; }
   .status{ font-size:11px; color:var(--ink-soft); font-family:"Helvetica Neue",Arial,sans-serif; }
   #storageInfo{ min-width:150px; text-align:right; }
 
@@ -198,6 +200,7 @@
       <input type="file" id="imageInput" accept="image/*" style="display:none" multiple>
       <button id="addImageBtn">+ Image</button>
       <button id="cleanupBtn">Clean images</button>
+      <button id="resetAllBtn" class="danger">Reset all</button>
       <button id="copyBtn">Copy text</button>
       <button id="exportBtn" class="primary">Export PDF</button>
     </div>
@@ -772,6 +775,47 @@ document.getElementById('cleanupBtn').addEventListener('click', async () => {
   await updateStorageInfo();
   btn.textContent = original;
   statusEl.textContent = deleted > 0 ? `removed ${deleted} unused image${deleted === 1 ? '' : 's'}` : 'no unused images found';
+  setTimeout(() => { statusEl.textContent = 'saved'; }, 2500);
+});
+
+// Full wipe - unlike "Clean images" (which only removes images no longer
+// referenced by any column), this deletes EVERYTHING: all columns' text
+// and every stored image, referenced or not. For when you're done with a
+// note (e.g. already exported the PDF) and want to reclaim all its
+// storage and start the next one from a blank slate. Two confirmations
+// since there is no undo.
+async function resetAllData(){
+  try{
+    const db = await openDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(['doc', 'images'], 'readwrite');
+      tx.objectStore('doc').clear();
+      tx.objectStore('images').clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }catch(e){}
+  imgMetaCache.forEach(meta => { if(meta && meta.url) URL.revokeObjectURL(meta.url); });
+  imgMetaCache.clear();
+  legacySizeCache.clear();
+  columns = DEFAULT_COLUMNS.slice();
+  activeCol = 0;
+  editor.value = columns[activeCol];
+  renderTabs();
+  renderColumnsDom();
+  await render();
+  await updateStorageInfo();
+}
+
+document.getElementById('resetAllBtn').addEventListener('click', async () => {
+  if(!confirm('Reset EVERYTHING? This permanently deletes all columns and every embedded image in this note. There is no undo.')) return;
+  if(!confirm('Really sure? Once you click OK, this note is gone for good.')) return;
+  const btn = document.getElementById('resetAllBtn');
+  const original = btn.textContent;
+  btn.textContent = 'Resetting…';
+  await resetAllData();
+  btn.textContent = original;
+  statusEl.textContent = 'reset - starting fresh';
   setTimeout(() => { statusEl.textContent = 'saved'; }, 2500);
 });
 
