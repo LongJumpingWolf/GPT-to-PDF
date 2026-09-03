@@ -992,7 +992,7 @@ async function deleteDocumentById(id){
   broadcast({ type:'docs-changed' });
 }
 
-async function createNewDocument(){
+async function createNewDocument(targetWindow){
   const id = 'doc-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + Math.random().toString(36).slice(2));
   const now = Date.now();
   await idbPut('docs', {
@@ -1001,13 +1001,28 @@ async function createNewDocument(){
     createdAt: now, updatedAt: now
   });
   broadcast({ type:'docs-changed' });
-  // Deliberately a new tab, not a same-tab navigation - matches "new doc
-  // opens a new tab" from the request, and lets you keep whatever else
-  // you had open (e.g. the document list, or another note) untouched.
-  window.open(location.pathname + location.search + '#doc=' + id, '_blank');
+  const url = location.pathname + location.search + '#doc=' + id;
+  // targetWindow was already opened SYNCHRONOUSLY by the caller, still
+  // inside the original click/keydown's user-activation window - most
+  // popup blockers allow that. If we called window.open() here instead,
+  // after the `await` above, the browser no longer sees this as tied to
+  // that user gesture and will typically block it silently (no error,
+  // the tab just never opens) - which is exactly what was happening.
+  if(targetWindow && !targetWindow.closed){
+    targetWindow.location = url;
+  } else {
+    window.open(url, '_blank');
+  }
 }
 
-document.getElementById('newDocBtn').addEventListener('click', () => { createNewDocument(); });
+function startNewDocumentFlow(){
+  // Open the blank tab FIRST, synchronously, before any async work, so it
+  // still counts as directly triggered by the user's click/keypress.
+  const w = window.open('', '_blank');
+  createNewDocument(w);
+}
+
+document.getElementById('newDocBtn').addEventListener('click', () => { startNewDocumentFlow(); });
 
 // Plain Ctrl+N (Cmd+N on Mac) is reserved by every major browser for
 // "open a new browser window" - a web page cannot intercept or override
@@ -1017,7 +1032,7 @@ document.getElementById('newDocBtn').addEventListener('click', () => { createNew
 window.addEventListener('keydown', (e) => {
   if((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'n' || e.key === 'N')){
     e.preventDefault();
-    createNewDocument();
+    startNewDocumentFlow();
   }
 });
 
