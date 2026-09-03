@@ -800,11 +800,29 @@ docTitleInput.addEventListener('input', () => {
    is a plain-text selection tool, not a syntax-aware rich editor, so it
    can't detect "this text is already colored" on its own.
    ========================================================================= */
+// Programmatically setting editor.value never enters the browser's native
+// undo/redo stack for a textarea - the undo manager only tracks real
+// input events, not arbitrary property writes, so Ctrl+Z had nothing to
+// undo after a toolbar action (or undid something unrelated). insertText
+// goes through the same internal path as actual typing, so it correctly
+// participates in undo/redo. Falls back to a direct value set only if
+// execCommand is unavailable, which still works functionally - it just
+// won't be undoable as a single step in that rare case.
+function replaceSelectionWithUndo(text){
+  editor.focus();
+  const ok = document.execCommand && document.execCommand('insertText', false, text);
+  if(!ok){
+    const start = editor.selectionStart, end = editor.selectionEnd;
+    const value = editor.value;
+    editor.value = value.slice(0, start) + text + value.slice(end);
+    editor.selectionStart = editor.selectionEnd = start + text.length;
+  }
+}
+
 function wrapSelectionSafe(before, after){
   const start = editor.selectionStart;
   const end = editor.selectionEnd;
-  const value = editor.value;
-  const selected = value.slice(start, end);
+  const selected = editor.value.slice(start, end);
 
   let wrapped;
   if(selected.length === 0){
@@ -816,17 +834,21 @@ function wrapSelectionSafe(before, after){
     wrapped = before + selected + after;
   }
 
-  editor.value = value.slice(0, start) + wrapped + value.slice(end);
+  // Re-establish focus AND the exact selection range before inserting -
+  // by the time this runs (e.g. after picking a custom color from the
+  // native OS color picker), focus may have moved off the textarea
+  // entirely, and execCommand needs both to target the right spot.
+  editor.focus();
+  editor.setSelectionRange(start, end);
+  replaceSelectionWithUndo(wrapped);
+
   if(selected.length === 0){
-    const pos = start + before.length;
-    editor.selectionStart = editor.selectionEnd = pos;
+    editor.setSelectionRange(start + before.length, start + before.length);
   } else {
-    editor.selectionStart = start;
-    editor.selectionEnd = start + wrapped.length;
+    editor.setSelectionRange(start, start + wrapped.length);
   }
   columns[activeCol] = editor.value;
   render();
-  editor.focus();
 }
 
 function isValidHex(h){ return /^#[0-9a-fA-F]{6}$/.test(h || ''); }
@@ -970,13 +992,13 @@ editor.addEventListener('keydown', (e) => {
 function insertAtCursor(text){
   const start = editor.selectionStart;
   const end = editor.selectionEnd;
-  const value = editor.value;
-  editor.value = value.slice(0, start) + text + value.slice(end);
+  editor.focus();
+  editor.setSelectionRange(start, end);
+  replaceSelectionWithUndo(text);
   const pos = start + text.length;
-  editor.selectionStart = editor.selectionEnd = pos;
+  editor.setSelectionRange(pos, pos);
   columns[activeCol] = editor.value;
   render();
-  editor.focus();
 }
 
 function isImageFile(file){
