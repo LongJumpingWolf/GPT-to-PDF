@@ -113,7 +113,39 @@
     font-size:11px; text-transform:uppercase; letter-spacing:0.08em;
     color:var(--ink-soft); padding:8px 20px;
     border-bottom:1px solid var(--rule); background:var(--paper); flex-shrink:0;
+    display:flex; align-items:center; gap:8px;
   }
+
+  /* Markdown cheat-sheet hover/click popover */
+  .md-help{ position:relative; display:inline-flex; text-transform:none; letter-spacing:normal; }
+  .md-help-btn{
+    width:15px; height:15px; padding:0; border-radius:50%;
+    border:1px solid var(--ink-soft); background:var(--paper-panel); color:var(--ink-soft);
+    font-size:10px; line-height:1; font-family:"Iowan Old Style","Georgia",serif; font-style:italic;
+    display:inline-flex; align-items:center; justify-content:center; cursor:help; flex-shrink:0;
+  }
+  .md-help-btn:hover, .md-help-btn:focus{ border-color:var(--accent); color:var(--accent); outline:none; }
+  .md-help-panel{
+    display:none; position:absolute; top:22px; left:0; z-index:80;
+    width:380px; max-width:calc(100vw - 40px); max-height:70vh; overflow-y:auto;
+    background:var(--paper-panel); border:1px solid var(--rule); border-radius:6px;
+    box-shadow:0 6px 20px rgba(0,0,0,0.18); padding:14px 16px;
+    font-family:"Helvetica Neue",Arial,sans-serif; font-size:12px; color:var(--ink);
+    text-transform:none; letter-spacing:normal;
+  }
+  .md-help:hover .md-help-panel, .md-help.open .md-help-panel, .md-help:focus-within .md-help-panel{ display:block; }
+  .md-help-panel h4{
+    font-size:10.5px; text-transform:uppercase; letter-spacing:0.06em; color:var(--accent);
+    margin:14px 0 6px 0; padding-bottom:3px; border-bottom:1px solid var(--rule);
+  }
+  .md-help-panel h4:first-child{ margin-top:0; }
+  .md-help-row{ display:flex; gap:10px; padding:3px 0; align-items:baseline; }
+  .md-help-row code{
+    flex:0 0 auto; background:var(--mono-bg); padding:1px 5px; border-radius:2px;
+    font-family:"SFMono-Regular","Consolas","Menlo",monospace; font-size:11px; white-space:pre;
+  }
+  .md-help-row span{ color:var(--ink-soft); line-height:1.4; }
+  .md-help-note{ color:var(--ink-soft); font-size:11.5px; line-height:1.5; margin:4px 0 0 0; }
 
   .tabs{
     display:flex; flex-shrink:0; flex-wrap:wrap;
@@ -267,7 +299,51 @@
   </header>
   <div class="panes">
     <div class="pane">
-      <div class="pane-label">Source (Markdown) — paste/drop an image to embed it; add "= 50%" inside the parens to resize</div>
+      <div class="pane-label">
+        <span>Source (Markdown) — paste/drop an image to embed it; add "= 50%" inside the parens to resize</span>
+        <span class="md-help" id="mdHelp">
+          <button type="button" class="md-help-btn" id="mdHelpBtn" aria-haspopup="true" aria-expanded="false" aria-label="Markdown syntax reference">i</button>
+          <div class="md-help-panel" id="mdHelpPanel" role="tooltip">
+            <h4>Headings</h4>
+            <div class="md-help-row"><code># H1</code><span>Largest heading</span></div>
+            <div class="md-help-row"><code>## H2</code><span>Section heading</span></div>
+            <div class="md-help-row"><code>### H3</code><span>Sub-heading</span></div>
+
+            <h4>Emphasis</h4>
+            <div class="md-help-row"><code>**bold**</code><span>Bold text</span></div>
+            <div class="md-help-row"><code>*italic*</code><span>Italic text</span></div>
+            <div class="md-help-row"><code>***both***</code><span>Bold + italic</span></div>
+            <div class="md-help-row"><code>~~strike~~</code><span>Strikethrough</span></div>
+            <div class="md-help-row"><code>`code`</code><span>Inline code</span></div>
+
+            <h4>Lists</h4>
+            <div class="md-help-row"><code>- item</code><span>Bullet list (or use *)</span></div>
+            <div class="md-help-row"><code>1. item</code><span>Numbered list</span></div>
+            <div class="md-help-row"><code>- [ ] todo</code><span>Task checkbox</span></div>
+            <div class="md-help-row"><code>- [x] done</code><span>Checked task</span></div>
+            <div class="md-help-row"><code>  - nested</code><span>Indent 2 spaces to nest</span></div>
+
+            <h4>Links &amp; images</h4>
+            <div class="md-help-row"><code>[text](url)</code><span>Link</span></div>
+            <div class="md-help-row"><code>![alt](url)</code><span>Image from a URL</span></div>
+            <p class="md-help-note">Paste or drop an image straight into the editor to embed it automatically - no URL needed. To resize an embedded image, add "&nbsp;=&nbsp;50%" (any percentage of its original size) right before the closing parenthesis:</p>
+            <div class="md-help-row"><code>![](img://id = 50%)</code><span></span></div>
+
+            <h4>Code blocks</h4>
+            <div class="md-help-row"><code>```text ... ```</code><span>Fenced block, optional language</span></div>
+
+            <h4>Tables</h4>
+            <div class="md-help-row"><code>| A | B |
+|---|---|
+| 1 | 2 |</code><span>Header row, separator, data rows</span></div>
+
+            <h4>Other</h4>
+            <div class="md-help-row"><code>&gt; quote</code><span>Blockquote</span></div>
+            <div class="md-help-row"><code>---</code><span>Horizontal rule</span></div>
+            <p class="md-help-note">Leave a blank line between paragraphs - a single line break alone is ignored.</p>
+          </div>
+        </span>
+      </div>
       <div class="tabs" id="tabs"></div>
       <textarea id="editor" spellcheck="false"></textarea>
     </div>
@@ -296,6 +372,25 @@ const homeScreenEl = document.getElementById('homeScreen');
 const editorScreenEl = document.getElementById('editorScreen');
 const notFoundScreenEl = document.getElementById('notFoundScreen');
 const docListEl = document.getElementById('docList');
+
+// Markdown cheat-sheet popover: CSS handles hover (desktop); this handles
+// click-to-toggle for touch devices, which have no hover state, plus
+// closing it on an outside click/tap.
+{
+  const mdHelp = document.getElementById('mdHelp');
+  const mdHelpBtn = document.getElementById('mdHelpBtn');
+  mdHelpBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = mdHelp.classList.toggle('open');
+    mdHelpBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+  });
+  document.addEventListener('click', (e) => {
+    if(!mdHelp.contains(e.target)){
+      mdHelp.classList.remove('open');
+      mdHelpBtn.setAttribute('aria-expanded', 'false');
+    }
+  });
+}
 
 /* =========================================================================
    Everything else - the DOM, routing, the editor, image handling UI -
