@@ -156,6 +156,56 @@
   .md-help-row span{ color:var(--ink-soft); line-height:1.4; }
   .md-help-note{ color:var(--ink-soft); font-size:11.5px; line-height:1.5; margin:4px 0 0 0; }
 
+  /* ===================== Formatting toolbar ===================== */
+  .editor-toolbar{
+    display:flex; align-items:center; gap:4px; flex-wrap:wrap;
+    padding:6px 12px; background:var(--paper); border-bottom:1px solid var(--rule);
+  }
+  .toolbar-sep{ width:1px; align-self:stretch; margin:2px 4px; background:var(--rule); }
+  .fmt-btn{
+    display:flex; align-items:center; justify-content:center; gap:4px;
+    width:30px; height:28px; padding:0; border:1px solid transparent; border-radius:4px;
+    background:transparent; color:var(--ink); cursor:pointer;
+    font-family:"Work Sans","Helvetica Neue",Arial,sans-serif; font-size:13px;
+  }
+  .fmt-btn:hover{ background:var(--accent-soft); border-color:var(--rule); }
+  .fmt-btn u{ text-decoration:underline; }
+
+  /* Text-color / highlight tools: click opens the panel (not hover) - this
+     is deliberate. A hover-triggered dropdown has a gap between the
+     trigger and the panel that the cursor can lose "hover" crossing, which
+     is exactly the bug being worked around here; click has no such gap by
+     construction, and it matches how Word/PowerPoint's own color pickers
+     actually behave (they're click dropdowns, not hover tooltips). */
+  .color-tool{ position:relative; display:inline-flex; }
+  .color-trigger{ width:auto; padding:0 8px; flex-direction:column; gap:2px; }
+  .color-trigger .color-icon{ font-size:13px; line-height:1; }
+  .tool-swatch-bar{ width:20px; height:3px; border-radius:1px; background:#ccc; }
+  .color-panel{
+    display:none; position:absolute; top:32px; left:0; z-index:90;
+    width:216px; background:var(--paper-panel); border:1px solid var(--rule); border-radius:6px;
+    box-shadow:0 6px 20px rgba(0,0,0,0.18); padding:12px;
+    font-family:"Work Sans","Helvetica Neue",Arial,sans-serif;
+  }
+  .color-tool.open .color-panel{ display:block; }
+  .color-section-label{ font-size:10.5px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-soft); margin:10px 0 6px 0; }
+  .color-section-label:first-child{ margin-top:0; }
+  .color-grid{ display:grid; grid-template-columns:repeat(6, 1fr); gap:6px; }
+  .color-swatch-btn{
+    width:26px; height:26px; padding:0; border-radius:4px; border:1px solid rgba(0,0,0,0.15);
+    cursor:pointer;
+  }
+  .color-swatch-btn:hover{ outline:2px solid var(--accent); outline-offset:1px; }
+  .color-add-swatch{
+    width:26px; height:26px; border-radius:4px; border:1px dashed var(--ink-soft);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    color:var(--ink-soft); font-size:15px; position:relative; overflow:hidden;
+  }
+  .color-add-swatch:hover{ border-color:var(--accent); color:var(--accent); }
+  .color-add-swatch input[type="color"]{
+    position:absolute; inset:0; opacity:0; width:100%; height:100%; border:none; padding:0; cursor:pointer;
+  }
+
   .tabs{
     display:flex; flex-shrink:0; flex-wrap:wrap;
     background:var(--paper);
@@ -354,6 +404,38 @@
         </span>
       </div>
       <div class="tabs" id="tabs"></div>
+      <div class="editor-toolbar">
+        <button type="button" class="fmt-btn" id="boldBtn" title="Bold (Ctrl+B)"><b>B</b></button>
+        <button type="button" class="fmt-btn" id="italicBtn" title="Italic (Ctrl+I)"><i>I</i></button>
+        <button type="button" class="fmt-btn" id="underlineBtn" title="Underline (Ctrl+U)"><u>U</u></button>
+        <span class="toolbar-sep"></span>
+        <span class="color-tool" id="textColorTool">
+          <button type="button" class="fmt-btn color-trigger" id="textColorBtn" title="Text color">
+            <span class="color-icon">A</span><span class="tool-swatch-bar" id="textColorSwatch"></span>
+          </button>
+          <div class="color-panel" id="textColorPanel">
+            <div class="color-section-label">Standard</div>
+            <div class="color-grid" id="textColorStandard"></div>
+            <div class="color-section-label" id="textColorRecentLabel" style="display:none">Recent</div>
+            <div class="color-grid" id="textColorRecent"></div>
+            <div class="color-section-label">Custom</div>
+            <label class="color-add-swatch" title="Pick any color">+<input type="color" id="textColorCustom" value="#1c2430"></label>
+          </div>
+        </span>
+        <span class="color-tool" id="highlightTool">
+          <button type="button" class="fmt-btn color-trigger" id="highlightBtn" title="Highlight (Ctrl+Q repeats last color)">
+            <span class="color-icon">&#9635;</span><span class="tool-swatch-bar" id="highlightSwatch"></span>
+          </button>
+          <div class="color-panel" id="highlightPanel">
+            <div class="color-section-label">Standard</div>
+            <div class="color-grid" id="highlightStandard"></div>
+            <div class="color-section-label" id="highlightRecentLabel" style="display:none">Recent</div>
+            <div class="color-grid" id="highlightRecent"></div>
+            <div class="color-section-label">Custom</div>
+            <label class="color-add-swatch" title="Pick any color">+<input type="color" id="highlightCustom" value="#fff176"></label>
+          </div>
+        </span>
+      </div>
       <textarea id="editor" spellcheck="false"></textarea>
     </div>
     <div class="divider"></div>
@@ -699,6 +781,192 @@ docTitleInput.addEventListener('input', () => {
    Images are stored as Blobs in IndexedDB and referenced from the
    markdown as img://<id>, resolved to a live object URL at render time.
    ========================================================================= */
+/* =========================================================================
+   Formatting toolbar: bold/italic/underline wrap the selection with
+   markdown/HTML markers; text-color and highlight wrap it with an inline
+   <span>/<mark>. Colors are applied via wrapSelectionSafe() below, which
+   specifically guards against the one way this silently breaks: wrapping
+   a selection that spans a paragraph break (a blank line) in one tag
+   would straddle marked's <p> boundaries and produce invalid, visually
+   broken nesting - so a selection containing a blank line gets wrapped
+   per-paragraph instead of as one span across all of it.
+
+   Known, accepted limitation: re-wrapping text that's already inside a
+   color span just NESTS a new span around the old one - the inner
+   (older) span's inline color still wins for its own text, so it won't
+   visually change. To actually change an existing color, select the text
+   together with its surrounding <span>/<mark> tags (visible in the
+   source) and replace them, rather than wrapping around them again. This
+   is a plain-text selection tool, not a syntax-aware rich editor, so it
+   can't detect "this text is already colored" on its own.
+   ========================================================================= */
+function wrapSelectionSafe(before, after){
+  const start = editor.selectionStart;
+  const end = editor.selectionEnd;
+  const value = editor.value;
+  const selected = value.slice(start, end);
+
+  let wrapped;
+  if(selected.length === 0){
+    wrapped = before + after;
+  } else if(/\n{2,}/.test(selected)){
+    const parts = selected.split(/(\n{2,})/);
+    wrapped = parts.map(part => /^\n{2,}$/.test(part) ? part : (part.length ? before + part + after : part)).join('');
+  } else {
+    wrapped = before + selected + after;
+  }
+
+  editor.value = value.slice(0, start) + wrapped + value.slice(end);
+  if(selected.length === 0){
+    const pos = start + before.length;
+    editor.selectionStart = editor.selectionEnd = pos;
+  } else {
+    editor.selectionStart = start;
+    editor.selectionEnd = start + wrapped.length;
+  }
+  columns[activeCol] = editor.value;
+  render();
+  editor.focus();
+}
+
+function isValidHex(h){ return /^#[0-9a-fA-F]{6}$/.test(h || ''); }
+function updateToolSwatch(elId, hex){
+  const el = document.getElementById(elId);
+  if(el) el.style.background = hex;
+}
+
+const TEXT_COLORS = ['#1c2430','#4a5568','#7a3b2e','#b3261e','#c2410c','#a16207','#15803d','#0f766e','#1d4ed8','#4338ca','#7e22ce','#be185d'];
+const HIGHLIGHT_COLORS = ['#FFF176','#AED581','#4FC3F7','#F06292','#81D4FA','#FFB74D','#BA68C8','#FFD54F','#E0E0E0','#DCE775','#A1887F','#EF9A9A'];
+
+let lastTextColor = null, lastHighlightColor = null;
+try{ lastTextColor = localStorage.getItem('mdEditorLastTextColor') || null; }catch(e){}
+try{ lastHighlightColor = localStorage.getItem('mdEditorLastHighlightColor') || null; }catch(e){}
+
+function applyTextColor(hex){
+  if(!isValidHex(hex)) return;
+  wrapSelectionSafe(`<span style="color:${hex}">`, `</span>`);
+  lastTextColor = hex;
+  try{ localStorage.setItem('mdEditorLastTextColor', hex); }catch(e){}
+  updateToolSwatch('textColorSwatch', hex);
+}
+function applyHighlightColor(hex){
+  if(!isValidHex(hex)) return;
+  wrapSelectionSafe(`<mark style="background:${hex}">`, `</mark>`);
+  lastHighlightColor = hex;
+  try{ localStorage.setItem('mdEditorLastHighlightColor', hex); }catch(e){}
+  updateToolSwatch('highlightSwatch', hex);
+}
+
+function renderColorGrid(container, colors, onPick){
+  container.innerHTML = '';
+  colors.forEach(hex => {
+    const sw = document.createElement('button');
+    sw.type = 'button';
+    sw.className = 'color-swatch-btn';
+    sw.style.background = hex;
+    sw.title = hex;
+    sw.addEventListener('mousedown', (e) => e.preventDefault());
+    sw.addEventListener('click', () => onPick(hex));
+    container.appendChild(sw);
+  });
+}
+
+// Custom/recent colors are stored in localStorage (not per-document), so
+// the same palette history is available in every document, new or old -
+// picking a custom color once in any note makes it available everywhere.
+function setupColorTool(opts){
+  const tool = document.getElementById(opts.toolId);
+  const btn = document.getElementById(opts.btnId);
+  const standardGrid = document.getElementById(opts.standardGridId);
+  const recentGrid = document.getElementById(opts.recentGridId);
+  const recentLabel = document.getElementById(opts.recentLabelId);
+  const customInput = document.getElementById(opts.customInputId);
+
+  function loadHistory(){
+    try{
+      const raw = localStorage.getItem(opts.historyKey);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr.filter(isValidHex) : [];
+    }catch(e){ return []; }
+  }
+  function saveHistory(arr){
+    try{ localStorage.setItem(opts.historyKey, JSON.stringify(arr.slice(0, 18))); }catch(e){}
+  }
+  function renderRecent(){
+    const hist = loadHistory();
+    recentLabel.style.display = hist.length ? '' : 'none';
+    renderColorGrid(recentGrid, hist, pick);
+  }
+  function addToHistory(hex){
+    const hist = loadHistory().filter(h => h.toLowerCase() !== hex.toLowerCase());
+    hist.unshift(hex);
+    saveHistory(hist);
+    renderRecent();
+  }
+  function closePanel(){ tool.classList.remove('open'); }
+  function pick(hex){
+    opts.onApply(hex);
+    addToHistory(hex);
+    closePanel();
+  }
+
+  renderColorGrid(standardGrid, opts.standardColors, pick);
+  renderRecent();
+
+  customInput.addEventListener('mousedown', (e) => e.preventDefault());
+  customInput.addEventListener('change', () => pick(customInput.value));
+
+  btn.addEventListener('mousedown', (e) => e.preventDefault()); // keep the textarea's selection intact
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const willOpen = !tool.classList.contains('open');
+    document.querySelectorAll('.color-tool.open').forEach(el => el.classList.remove('open'));
+    if(willOpen) tool.classList.add('open');
+  });
+}
+
+setupColorTool({
+  toolId:'textColorTool', btnId:'textColorBtn',
+  standardGridId:'textColorStandard', recentGridId:'textColorRecent', recentLabelId:'textColorRecentLabel',
+  customInputId:'textColorCustom', standardColors:TEXT_COLORS, historyKey:'mdEditorTextColorHistory',
+  onApply: applyTextColor
+});
+setupColorTool({
+  toolId:'highlightTool', btnId:'highlightBtn',
+  standardGridId:'highlightStandard', recentGridId:'highlightRecent', recentLabelId:'highlightRecentLabel',
+  customInputId:'highlightCustom', standardColors:HIGHLIGHT_COLORS, historyKey:'mdEditorHighlightColorHistory',
+  onApply: applyHighlightColor
+});
+updateToolSwatch('textColorSwatch', lastTextColor || TEXT_COLORS[0]);
+updateToolSwatch('highlightSwatch', lastHighlightColor || HIGHLIGHT_COLORS[0]);
+
+document.addEventListener('click', (e) => {
+  document.querySelectorAll('.color-tool.open').forEach(tool => {
+    if(!tool.contains(e.target)) tool.classList.remove('open');
+  });
+});
+
+[['boldBtn','**','**'], ['italicBtn','*','*'], ['underlineBtn','<u>','</u>']].forEach(([id, before, after]) => {
+  const b = document.getElementById(id);
+  b.addEventListener('mousedown', (e) => e.preventDefault());
+  b.addEventListener('click', () => wrapSelectionSafe(before, after));
+});
+
+// Ctrl+B/I/U/Q are scoped to the editor textarea itself (not a window-level
+// listener), so they only fire while actually typing notes - no
+// interference with the home screen, the title field, or anything else.
+// None of these are browser-reserved shortcuts (unlike Ctrl+N), so
+// preventDefault() here reliably stops any default browser behavior.
+editor.addEventListener('keydown', (e) => {
+  const mod = e.ctrlKey || e.metaKey;
+  if(!mod || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if(k === 'b'){ e.preventDefault(); wrapSelectionSafe('**','**'); }
+  else if(k === 'i'){ e.preventDefault(); wrapSelectionSafe('*','*'); }
+  else if(k === 'u'){ e.preventDefault(); wrapSelectionSafe('<u>','</u>'); }
+  else if(k === 'q'){ e.preventDefault(); applyHighlightColor(lastHighlightColor || HIGHLIGHT_COLORS[0]); }
+});
+
 function insertAtCursor(text){
   const start = editor.selectionStart;
   const end = editor.selectionEnd;
