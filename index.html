@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%9D%3C/text%3E%3C/svg%3E">
+<title>Study Note Editor</title>
+<script src="marked.min.js"></script>
+<style>
+  :root{
+    --ink:#1c2430;
+    --ink-soft:#4a5568;
+    --paper:#e9e5da;
+    --paper-panel:#ffffff;
+    --rule:#d8d3c6;
+    --accent:#7a3b2e;
+    --accent-soft:#f1e6df;
+    --mono-bg:#f2efe6;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;height:100%;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:"Iowan Old Style","Georgia",serif;
+  }
+  .app{ display:flex; flex-direction:column; height:100vh; }
+  header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 22px;
+    border-bottom:1px solid var(--rule);
+    background:var(--paper-panel);
+    flex-shrink:0;
+    gap:12px;
+    flex-wrap:wrap;
+  }
+  header h1{ font-size:16px; font-weight:600; margin:0; color:var(--ink); }
+  header .sub{ font-size:12px; color:var(--ink-soft); margin-top:2px; font-family:"Helvetica Neue",Arial,sans-serif; }
+  .controls{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  button{
+    font-family:"Helvetica Neue",Arial,sans-serif;
+    font-size:13px;
+    padding:8px 16px;
+    border-radius:3px;
+    border:1px solid var(--rule);
+    background:var(--paper-panel);
+    color:var(--ink);
+    cursor:pointer;
+  }
+  button:hover{ background:var(--accent-soft); border-color:var(--accent); }
+  button.primary{ background:var(--accent); color:#fdfaf5; border-color:var(--accent); }
+  button.primary:hover{ background:#632f25; }
+  .status{ font-size:11px; color:var(--ink-soft); font-family:"Helvetica Neue",Arial,sans-serif; }
+  #storageInfo{ min-width:150px; text-align:right; }
+
+  .panes{ flex:1; display:flex; min-height:0; }
+  .pane{ flex:1 1 50%; min-width:0; display:flex; flex-direction:column; height:100%; }
+  .pane-label{
+    font-family:"Helvetica Neue",Arial,sans-serif;
+    font-size:11px; text-transform:uppercase; letter-spacing:0.08em;
+    color:var(--ink-soft); padding:8px 20px;
+    border-bottom:1px solid var(--rule); background:var(--paper); flex-shrink:0;
+  }
+
+  /* Column tabs above the editor */
+  .tabs{
+    display:flex; flex-shrink:0; flex-wrap:wrap;
+    background:var(--paper);
+    border-bottom:1px solid var(--rule);
+    font-family:"Helvetica Neue",Arial,sans-serif;
+  }
+  .tab{
+    display:flex; align-items:center;
+    border:none; border-radius:0;
+    border-bottom:2px solid transparent;
+    background:transparent;
+    color:var(--ink-soft);
+    font-size:12px;
+    padding:9px 14px;
+    cursor:pointer;
+  }
+  .tab:hover{ background:var(--accent-soft); border-color:transparent; }
+  .tab.active{ color:var(--accent); border-bottom-color:var(--accent); font-weight:600; background:var(--paper-panel); }
+  .tab-close{ margin-left:8px; color:var(--ink-soft); font-size:13px; line-height:1; }
+  .tab-close:hover{ color:var(--accent); }
+  .tab-add{ font-weight:700; color:var(--accent); font-size:14px; padding:9px 16px; }
+
+  #editor{
+    flex:1; width:100%; resize:none; border:none; outline:none;
+    padding:20px 22px 60px 22px;
+    font-family:"SFMono-Regular","Consolas","Menlo",monospace;
+    font-size:12.5px; line-height:1.6;
+    background:var(--mono-bg); color:var(--ink);
+    white-space:pre; overflow:auto;
+  }
+  .divider{ width:1px; background:var(--rule); flex-shrink:0; }
+
+  /* Right pane: scrollable grey tray holding a literal "sheet of paper" */
+  #previewTray{
+    flex:1; overflow:auto; background:var(--paper); padding:24px;
+  }
+
+  /* The "page" grows to fit whatever the merged columns actually need -
+     no artificial page-width cap, and no forced 50/50 or fixed ratio split. */
+  #page{
+    width:max-content;
+    max-width:none;
+    margin:0 auto;
+    background:var(--paper-panel);
+    box-shadow:0 1px 3px rgba(0,0,0,0.12), 0 8px 24px rgba(0,0,0,0.08);
+    padding:48px 46px;
+  }
+
+  /* align-items:stretch (the default) makes every column match the height
+     of the tallest one, so the divider border-left runs the full height
+     of the page instead of stopping at whichever column is shorter. */
+  .columns{ display:flex; align-items:stretch; gap:0; }
+  /* Each column sizes to ONLY its own content (flex:0 0 auto + width:max-content).
+     No min-width floor, so a short column stays narrow and a long one grows
+     independently - never split proportionally with its neighbors. */
+  .col{ flex:0 0 auto; width:max-content; padding:0 30px; }
+  .col:first-child{ padding-left:0; }
+  .col:last-child{ padding-right:0; }
+  .col + .col{ border-left:1px solid var(--rule); }
+
+  #page .col h1{ font-size:22px; border-bottom:2px solid var(--ink); padding-bottom:8px; margin:0 0 18px 0; }
+  #page .col h2{ font-size:17px; margin:34px 0 12px 0; padding-bottom:4px; border-bottom:1px solid var(--rule); }
+  #page .col h3{ font-size:14.5px; margin:22px 0 8px 0; }
+  #page .col p{ font-size:14px; line-height:1.65; margin:0 0 12px 0; max-width:480px; }
+  #page .col hr{ border:none; border-top:1px solid var(--rule); margin:26px 0; }
+  #page .col strong{ font-weight:700; }
+  #page .col em{ font-style:italic; }
+  #page .col ul, #page .col ol{ font-size:14px; line-height:1.6; padding-left:22px; margin:0 0 12px 0; max-width:480px; }
+  #page .col pre{
+    background:var(--mono-bg); border:1px solid var(--rule); border-left:3px solid var(--accent);
+    border-radius:2px; padding:12px 14px; overflow-x:visible; margin:0 0 16px 0; width:max-content;
+  }
+  #page .col code{
+    font-family:"SFMono-Regular","Consolas","Menlo",monospace;
+    font-size:10.5px; line-height:1.45; white-space:pre; color:#2b2f36;
+  }
+  #page .col p code, #page .col li code{
+    background:var(--mono-bg); padding:1px 5px; border-radius:2px; font-size:12px; white-space:normal;
+  }
+  #page .col table{ border-collapse:collapse; width:max-content; font-size:13px; margin:0 0 16px 0; }
+  #page .col th, #page .col td{ border:1px solid var(--rule); padding:6px 10px; text-align:left; white-space:pre; }
+  #page .col th{ background:var(--accent-soft); }
+  #page .col img{
+    display:block; max-width:520px; width:auto; height:auto;
+    margin:0 0 14px 0; border:1px solid var(--rule); border-radius:2px;
+  }
+  #page .col img.missing{ opacity:0.4; }
+
+  @media (max-width: 860px){
+    .panes{ flex-direction:column; }
+    .divider{ width:100%; height:1px; }
+  }
+
+  /* Printing: show ONLY the page content, as plain paper (no tray, no shadow, no chrome).
+     The @page size is set dynamically by JS (see #dynamicPageSize) right before printing,
+     using the natural width the merged columns actually need - so every page uses that
+     same width, with no fixed/standard paper-width restriction. */
+  @media print{
+    header, .pane-label, .tabs, .divider, #editor, .pane:first-child{ display:none !important; }
+    body, html{ background:#fff !important; height:auto; }
+    .app, .panes, .pane, #previewTray{ display:block !important; height:auto !important; overflow:visible !important; padding:0 !important; }
+    #page{ box-shadow:none !important; padding:0 !important; margin:0 !important; width:max-content !important; }
+    #page .col code{ font-size:9px; }
+    #page .col pre{ break-inside:avoid; }
+    #page .col table{ break-inside:avoid; }
+    #page .col img{ break-inside:avoid; }
+    #page .col h1, #page .col h2, #page .col h3{ break-after:avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <h1>Study Note Editor</h1>
+      <div class="sub">Edit each column on the left — the merged page on the right updates live and IS what exports</div>
+    </div>
+    <div class="controls">
+      <span class="status" id="status">saved</span>
+      <span class="status" id="storageInfo"></span>
+      <input type="file" id="imageInput" accept="image/*" style="display:none" multiple>
+      <button id="addImageBtn">+ Image</button>
+      <button id="cleanupBtn">Clean images</button>
+      <button id="copyBtn">Copy text</button>
+      <button id="exportBtn" class="primary">Export PDF</button>
+    </div>
+  </header>
+  <div class="panes">
+    <div class="pane">
+      <div class="pane-label">Source (Markdown) — paste/drop an image to embed it; add "= 50%" inside the parens to resize</div>
+      <div class="tabs" id="tabs"></div>
+      <textarea id="editor" spellcheck="false"></textarea>
+    </div>
+    <div class="divider"></div>
+    <div class="pane">
+      <div class="pane-label">Live Page Preview</div>
+      <div id="previewTray">
+        <div id="page">
+          <div class="columns" id="columnsContainer"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+marked.setOptions({ gfm:true, breaks:false });
+
+const editor = document.getElementById('editor');
+const tabsEl = document.getElementById('tabs');
+const columnsContainer = document.getElementById('columnsContainer');
+const statusEl = document.getElementById('status');
+const storageInfoEl = document.getElementById('storageInfo');
+
+/* =========================================================================
+   Storage: IndexedDB instead of localStorage.
+   localStorage tops out around 5-10MB per origin, which lossless images
+   blow through fast. IndexedDB's quota is tied to available disk space
+   (commonly hundreds of MB up to several GB, browser-dependent), and it
+   stores Blobs natively instead of forcing everything through base64 text.
+   Two object stores:
+     - "doc"    -> one record holding the columns array + active tab
+     - "images" -> one record per embedded image, holding the raw Blob
+   ========================================================================= */
+const DB_NAME = 'studyNoteEditorDB';
+const DB_VERSION = 1;
+let dbPromise = null;
+
+function openDB(){
+  if(dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if(!db.objectStoreNames.contains('doc')) db.createObjectStore('doc', { keyPath:'id' });
+      if(!db.objectStoreNames.contains('images')) db.createObjectStore('images', { keyPath:'id' });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return dbPromise;
+}
+async function idbPut(store, value){
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).put(value);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbGet(store, key){
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readonly');
+    const req = tx.objectStore(store).get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbGetAllKeys(store){
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readonly');
+    const req = tx.objectStore(store).getAllKeys();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbDelete(store, key){
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+function formatBytes(n){
+  if(n == null) return '';
+  if(n < 1024) return n + ' B';
+  if(n < 1024*1024) return (n/1024).toFixed(0) + ' KB';
+  if(n < 1024*1024*1024) return (n/(1024*1024)).toFixed(1) + ' MB';
+  return (n/(1024*1024*1024)).toFixed(2) + ' GB';
+}
+async function updateStorageInfo(){
+  try{
+    if(navigator.storage && navigator.storage.estimate){
+      const { usage, quota } = await navigator.storage.estimate();
+      if(usage != null && quota != null){
+        storageInfoEl.textContent = `${formatBytes(usage)} used of ~${formatBytes(quota)} available`;
+      }
+    }
+  }catch(e){}
+}
+// Ask the browser not to silently evict this origin's data under storage
+// pressure - relevant now that images can add up to real megabytes.
+if(navigator.storage && navigator.storage.persist){
+  navigator.storage.persist().catch(() => {});
+}
+
+const LEGACY_STORAGE_KEY_V3 = 'study-note-editor-columns-v3';
+const LEGACY_STORAGE_KEY_V2 = 'study-note-editor-columns-v2';
+
+const DEFAULT_COLUMNS = [
+`# Paste or write your notes here
+
+Use standard Markdown. Headings (#, ##, ###), **bold**, *italic*, tables,
+and fenced code blocks all render on the right, exactly as they will export.
+
+\`\`\`text
+                ANAEMIA
+                   |
+                   v
+          CLASSIFY ACCORDING TO MCV
+\`\`\`
+`,
+`# Column 2
+
+Use this second column for extra details — mnemonics, cross-references,
+extra tables, or images pasted straight from your clipboard.
+`
+];
+
+let columns = DEFAULT_COLUMNS.slice();
+let activeCol = 0;
+let colEls = [];
+const imgMetaCache = new Map(); // image id -> { url, width, height } (cached across renders)
+
+// Custom sizing syntax on top of normal markdown images:
+//   ![](img://<id> = 50%)
+// The number is a percentage of the image's ORIGINAL stored resolution
+// (not of the column/page width), so "= 50%" always means "half the
+// pixel size it was inserted at" - predictable regardless of layout.
+// Matches only when "= N%" is present; a plain ![](img://<id>) is left
+// untouched for marked's normal image handling.
+const IMG_SIZE_RE = /!\[([^\]]*)\]\(\s*(img:\/\/[a-zA-Z0-9-]+)\s*=\s*(\d+(?:\.\d+)?)%\s*\)/g;
+const DEFAULT_IMAGE_MAX_WIDTH = 520; // px cap used when no "= N%" is given
+function preprocessImageSizes(text){
+  return (text || '').replace(IMG_SIZE_RE, (match, alt, src, pct) => {
+    const safeAlt = alt.replace(/"/g, '&quot;');
+    return `<img src="${src}" alt="${safeAlt}" data-pct="${pct}">`;
+  });
+}
+
+async function loadSaved(){
+  try{
+    const rec = await idbGet('doc', 'main');
+    if(rec && Array.isArray(rec.columns) && rec.columns.length){
+      columns = rec.columns;
+      activeCol = Math.min(rec.activeCol || 0, columns.length - 1);
+      return;
+    }
+  }catch(e){}
+  // One-time migration from the old localStorage-based versions (those
+  // stored images as inline base64 data URLs, which still render fine
+  // as-is - no conversion needed, they just move into IndexedDB now).
+  try{
+    const raw = localStorage.getItem(LEGACY_STORAGE_KEY_V3) || localStorage.getItem(LEGACY_STORAGE_KEY_V2);
+    if(raw){
+      const parsed = JSON.parse(raw);
+      if(Array.isArray(parsed) && parsed.length) columns = parsed;
+    }
+  }catch(e){}
+}
+
+async function persistDoc(){
+  try{
+    await idbPut('doc', { id:'main', columns, activeCol });
+    return true;
+  }catch(e){
+    return false;
+  }
+}
+
+// Deletes any stored image no longer referenced by img://<id> in any column.
+// This ONLY runs when explicitly triggered (the "Clean images" button) -
+// there is no automatic/background deletion. That's deliberate: an image
+// isn't necessarily done just because no column currently references it -
+// you might delete an embed intending to reuse that image later. Nothing
+// gets removed unless you ask for it, with the confirmation prompt already
+// in place on the button.
+async function gcUnusedImages(){
+  try{
+    const used = new Set();
+    const re = /img:\/\/([a-zA-Z0-9-]+)/g;
+    columns.forEach(text => {
+      let m;
+      while((m = re.exec(text || '')) !== null) used.add(m[1]);
+    });
+    const keys = await idbGetAllKeys('images');
+    let deleted = 0;
+    for(const key of keys){
+      if(used.has(key)) continue;
+      await idbDelete('images', key);
+      const meta = imgMetaCache.get(key);
+      if(meta && meta.url){ URL.revokeObjectURL(meta.url); }
+      imgMetaCache.delete(key);
+      deleted++;
+    }
+    return deleted;
+  }catch(e){
+    return 0;
+  }
+}
+
+// Resolves img://<id> placeholders left by marked's output into actual
+// displayable object URLs backed by the Blob stored in IndexedDB. Also
+// applies the same explicit-width treatment to legacy inline base64
+// images (data:...) carried over from the old localStorage format, so
+// they can't reintroduce the same column-overflow bug.
+const legacySizeCache = new Map(); // data-url -> {width,height} | null
+function measureNaturalSize(url){
+  return new Promise((resolve) => {
+    const probe = new Image();
+    probe.onload = () => resolve({ width: probe.naturalWidth, height: probe.naturalHeight });
+    probe.onerror = () => resolve(null);
+    probe.src = url;
+  });
+}
+
+async function resolveImages(html){
+  const container = document.createElement('div');
+  container.innerHTML = html;
+
+  const idImgs = Array.from(container.querySelectorAll('img[src^="img://"]'));
+  for(const imgEl of idImgs){
+    const id = imgEl.getAttribute('src').slice('img://'.length);
+    let meta = imgMetaCache.get(id);
+    if(!meta){
+      const rec = await idbGet('images', id);
+      if(rec && rec.blob){
+        meta = { url: URL.createObjectURL(rec.blob), width: rec.width || null, height: rec.height || null };
+        imgMetaCache.set(id, meta);
+      }
+    }
+    if(meta){
+      imgEl.setAttribute('src', meta.url);
+      const pctAttr = imgEl.getAttribute('data-pct');
+      const pct = pctAttr ? parseFloat(pctAttr) : null;
+      // Always set an explicit pixel width (not CSS max-width) on these
+      // images, even when the natural size is unknown (e.g. dimension
+      // probing failed for an unusual format) - falling back to bare
+      // CSS max-width would reintroduce the column-overflow bug. Browsers
+      // are inconsistent about honoring a replaced element's max-width
+      // when computing a width:max-content ancestor's shrink-to-fit size,
+      // so an explicit width removes that ambiguity entirely.
+      let targetWidth;
+      if(pct && meta.width){
+        targetWidth = Math.max(1, Math.round(meta.width * pct / 100));
+      } else if(meta.width){
+        targetWidth = Math.min(meta.width, DEFAULT_IMAGE_MAX_WIDTH);
+      } else {
+        targetWidth = DEFAULT_IMAGE_MAX_WIDTH;
+      }
+      imgEl.style.width = targetWidth + 'px';
+      imgEl.style.maxWidth = 'none';
+      imgEl.style.height = 'auto';
+      imgEl.removeAttribute('data-pct');
+    } else {
+      imgEl.classList.add('missing');
+      imgEl.alt = '(image unavailable)';
+    }
+  }
+
+  const legacyImgs = Array.from(container.querySelectorAll('img[src^="data:"]'));
+  for(const imgEl of legacyImgs){
+    const src = imgEl.getAttribute('src');
+    let size = legacySizeCache.get(src);
+    if(size === undefined){
+      size = await measureNaturalSize(src);
+      legacySizeCache.set(src, size);
+    }
+    const targetWidth = size ? Math.min(size.width, DEFAULT_IMAGE_MAX_WIDTH) : DEFAULT_IMAGE_MAX_WIDTH;
+    imgEl.style.width = targetWidth + 'px';
+    imgEl.style.maxWidth = 'none';
+    imgEl.style.height = 'auto';
+  }
+
+  return container.innerHTML;
+}
+
+function renderColumnsDom(){
+  columnsContainer.innerHTML = '';
+  colEls = [];
+  columns.forEach((_, i) => {
+    const div = document.createElement('div');
+    div.className = 'col';
+    div.id = 'col-' + i;
+    columnsContainer.appendChild(div);
+    colEls.push(div);
+  });
+}
+
+async function render(){
+  for(let i = 0; i < columns.length; i++){
+    if(!colEls[i]) continue;
+    const html = marked.parse(preprocessImageSizes(columns[i] || ''));
+    colEls[i].innerHTML = await resolveImages(html);
+  }
+  const ok = await persistDoc();
+  statusEl.textContent = ok ? 'saved' : 'not saved (storage full)';
+  updateStorageInfo();
+}
+
+function renderTabs(){
+  tabsEl.innerHTML = '';
+  columns.forEach((_, i) => {
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.className = 'tab' + (i === activeCol ? ' active' : '');
+    tab.dataset.col = i;
+
+    const label = document.createElement('span');
+    label.textContent = `Column ${i + 1}`;
+    tab.appendChild(label);
+
+    if(columns.length > 1){
+      const close = document.createElement('span');
+      close.className = 'tab-close';
+      close.textContent = '×';
+      close.title = 'Remove this column';
+      close.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const hasContent = (columns[i] || '').trim().length > 0;
+        if(hasContent && !confirm(`Remove "Column ${i + 1}"? This can't be undone.`)) return;
+        removeColumn(i);
+      });
+      tab.appendChild(close);
+    }
+
+    tab.addEventListener('click', () => switchTab(i));
+    tabsEl.appendChild(tab);
+  });
+
+  const addBtn = document.createElement('button');
+  addBtn.type = 'button';
+  addBtn.className = 'tab tab-add';
+  addBtn.textContent = '+';
+  addBtn.title = 'Add column';
+  addBtn.addEventListener('click', addColumn);
+  tabsEl.appendChild(addBtn);
+}
+
+function switchTab(idx){
+  if(idx === activeCol) return;
+  columns[activeCol] = editor.value;
+  activeCol = idx;
+  editor.value = columns[activeCol];
+  renderTabs();
+  persistDoc();
+}
+
+function addColumn(){
+  columns[activeCol] = editor.value;
+  columns.push(`# Column ${columns.length + 1}\n\n`);
+  activeCol = columns.length - 1;
+  editor.value = columns[activeCol];
+  renderTabs();
+  renderColumnsDom();
+  render();
+}
+
+function removeColumn(idx){
+  if(columns.length <= 1) return;
+  columns.splice(idx, 1);
+  // Keep activeCol pointing at the SAME content it pointed at before the
+  // removal (not just the same numeric index) - removing a column before
+  // the active one shifts every later index down by one, so activeCol
+  // must shift too or the editor silently starts showing a different
+  // column's text without the user noticing.
+  if(idx < activeCol) activeCol -= 1;
+  if(activeCol >= columns.length) activeCol = columns.length - 1;
+  if(activeCol < 0) activeCol = 0;
+  editor.value = columns[activeCol];
+  renderTabs();
+  renderColumnsDom();
+  render();
+}
+
+let debounceTimer;
+editor.addEventListener('input', () => {
+  columns[activeCol] = editor.value;
+  statusEl.textContent = 'editing…';
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(render, 150);
+});
+
+/* =========================================================================
+   Image support - lossless, following the same approach as the
+   pdf-page-extractor extension's "Image to PDF" tool:
+     - JPEG/PNG files are stored with their ORIGINAL bytes, completely
+       untouched - no re-encoding, no resizing, no quality loss at all.
+     - Other formats (WebP/GIF/BMP/etc) are decoded once at native
+       resolution and re-encoded as lossless PNG (same fallback the
+       extension uses before embedding into a PDF) - still no resizing.
+   Images are stored as Blobs in IndexedDB and referenced from the
+   markdown as img://<id>, resolved to a live object URL at render time.
+   ========================================================================= */
+function insertAtCursor(text){
+  const start = editor.selectionStart;
+  const end = editor.selectionEnd;
+  const value = editor.value;
+  editor.value = value.slice(0, start) + text + value.slice(end);
+  const pos = start + text.length;
+  editor.selectionStart = editor.selectionEnd = pos;
+  columns[activeCol] = editor.value;
+  render();
+  editor.focus();
+}
+
+function isImageFile(file){
+  if(file.type && file.type.startsWith('image/')) return true;
+  return /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name || '');
+}
+function isLosslessPassthrough(file){
+  const type = (file.type || '').toLowerCase();
+  return type === 'image/jpeg' || type === 'image/jpg' || type === 'image/png'
+    || /\.(jpe?g|png)$/i.test(file.name || '');
+}
+
+async function fileToLosslessBlob(file){
+  if(isLosslessPassthrough(file)){
+    // Original bytes, byte-for-byte - zero re-encoding. We still decode
+    // once (read-only) purely to record the natural pixel dimensions,
+    // which the "= 50%" resize syntax uses as its 100% reference point.
+    const type = file.type || (/\.png$/i.test(file.name || '') ? 'image/png' : 'image/jpeg');
+    let width = null, height = null;
+    try{
+      const bitmap = await createImageBitmap(file);
+      width = bitmap.width; height = bitmap.height;
+      if(bitmap.close) bitmap.close();
+    }catch(e){}
+    return { blob: file, type, width, height };
+  }
+  // Fallback for WebP/GIF/BMP etc: decode at native resolution, re-encode
+  // as lossless PNG. No resizing - only a lossless container change.
+  const bitmap = await createImageBitmap(file);
+  const width = bitmap.width, height = bitmap.height;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext('2d').drawImage(bitmap, 0, 0);
+  const pngBlob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+  if(bitmap.close) bitmap.close();
+  return { blob: pngBlob, type: 'image/png', width, height };
+}
+
+async function insertImageFile(file){
+  if(!file || !isImageFile(file)) return;
+  const prevStatus = statusEl.textContent;
+  statusEl.textContent = 'adding image…';
+  try{
+    const { blob, type, width, height } = await fileToLosslessBlob(file);
+    const id = (crypto.randomUUID ? crypto.randomUUID() : ('img-' + Date.now() + '-' + Math.random().toString(36).slice(2)));
+    await idbPut('images', { id, blob, type, width, height, name: file.name || 'pasted-image', createdAt: Date.now() });
+    insertAtCursor(`![](img://${id})\n\n`);
+  }catch(e){
+    console.error(e);
+    statusEl.textContent = 'image failed to add';
+    setTimeout(() => { statusEl.textContent = prevStatus; }, 2000);
+  }
+}
+
+editor.addEventListener('paste', (e) => {
+  const items = (e.clipboardData || window.clipboardData).items;
+  const imageFiles = [];
+  for(const item of items){
+    if(item.type && item.type.startsWith('image/')){
+      imageFiles.push(item.getAsFile());
+    }
+  }
+  if(imageFiles.length){
+    e.preventDefault();
+    imageFiles.forEach(insertImageFile);
+  }
+});
+
+editor.addEventListener('dragover', (e) => e.preventDefault());
+editor.addEventListener('drop', (e) => {
+  const files = e.dataTransfer && e.dataTransfer.files;
+  if(files && files.length){
+    e.preventDefault();
+    Array.from(files).forEach(insertImageFile);
+  }
+});
+
+const imageInput = document.getElementById('imageInput');
+document.getElementById('addImageBtn').addEventListener('click', () => imageInput.click());
+imageInput.addEventListener('change', () => {
+  if(imageInput.files && imageInput.files.length){
+    Array.from(imageInput.files).forEach(insertImageFile);
+  }
+  imageInput.value = '';
+});
+
+document.getElementById('copyBtn').addEventListener('click', () => {
+  editor.select();
+  document.execCommand('copy');
+  const btn = document.getElementById('copyBtn');
+  const original = btn.textContent;
+  btn.textContent = 'Copied';
+  setTimeout(() => btn.textContent = original, 1200);
+});
+
+// Export: size every printed page's WIDTH to whatever the merged columns
+// actually need (no fixed/standard paper width), keep a standard A4 height
+// so long notes still paginate normally down the page. Images print at
+// their full stored resolution (nothing was downscaled on the way in).
+function updatePrintPageSize(){
+  const pageEl = document.getElementById('page');
+  const widthPx = pageEl.scrollWidth;
+  const widthPt = Math.ceil(widthPx * 0.75);   // 96px/in -> 72pt/in
+  const heightPt = 841.89;                     // A4 height
+
+  let styleEl = document.getElementById('dynamicPageSize');
+  if(!styleEl){
+    styleEl = document.createElement('style');
+    styleEl.id = 'dynamicPageSize';
+    document.head.appendChild(styleEl);
+  }
+  styleEl.textContent = `@page{ size:${widthPt}pt ${heightPt}pt; margin:0; }`;
+}
+// Also recompute on the browser's own print trigger (Ctrl+P / print menu),
+// not just our button - otherwise a manual print would use whatever size
+// (or none) was last set by an earlier export click.
+window.addEventListener('beforeprint', updatePrintPageSize);
+
+document.getElementById('exportBtn').addEventListener('click', () => {
+  updatePrintPageSize();
+  window.print();
+});
+
+document.getElementById('cleanupBtn').addEventListener('click', async () => {
+  if(!confirm('Delete any images no longer referenced by your columns? This frees storage but cannot be undone.')) return;
+  const btn = document.getElementById('cleanupBtn');
+  const original = btn.textContent;
+  btn.textContent = 'Cleaning…';
+  const deleted = await gcUnusedImages();
+  await updateStorageInfo();
+  btn.textContent = original;
+  statusEl.textContent = deleted > 0 ? `removed ${deleted} unused image${deleted === 1 ? '' : 's'}` : 'no unused images found';
+  setTimeout(() => { statusEl.textContent = 'saved'; }, 2500);
+});
+
+// ---- init ----
+(async function init(){
+  await loadSaved();
+  editor.value = columns[activeCol] || '';
+  renderTabs();
+  renderColumnsDom();
+  await render();
+})();
+</script>
+</body>
+</html>
