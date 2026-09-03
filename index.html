@@ -6,6 +6,9 @@
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%9D%3C/text%3E%3C/svg%3E">
 <title>Study Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="marked.min.js"></script>
 <style>
   :root{
@@ -30,7 +33,7 @@
   .screen.visible{ display:flex; flex-direction:column; }
 
   button{
-    font-family:"Helvetica Neue",Arial,sans-serif;
+    font-family:"Work Sans","Helvetica Neue",Arial,sans-serif;
     font-size:13px;
     padding:8px 16px;
     border-radius:3px;
@@ -44,7 +47,7 @@
   button.primary:hover{ background:#632f25; }
   button.danger{ color:#b3261e; border-color:#e0b4ae; }
   button.danger:hover{ background:#fbeae8; border-color:#b3261e; }
-  .status{ font-size:11px; color:var(--ink-soft); font-family:"Helvetica Neue",Arial,sans-serif; }
+  .status{ font-size:11px; color:var(--ink-soft); font-family:"Work Sans","Helvetica Neue",Arial,sans-serif; }
   #storageInfo, #homeStorageInfo{ min-width:150px; text-align:right; }
 
   /* ===================== Home screen (document list) ===================== */
@@ -65,14 +68,14 @@
   .doc-card:hover{ border-color:var(--accent); box-shadow:0 2px 8px rgba(0,0,0,0.08); }
   .doc-card-title{ font-weight:600; font-size:15px; margin-bottom:8px; padding-right:20px;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .doc-card-meta{ font-size:11.5px; color:var(--ink-soft); font-family:"Helvetica Neue",Arial,sans-serif; }
+  .doc-card-meta{ font-size:11.5px; color:var(--ink-soft); font-family:"Work Sans","Helvetica Neue",Arial,sans-serif; }
   .doc-card-delete{
     position:absolute; top:10px; right:10px; width:22px; height:22px; padding:0;
     border:none; background:transparent; color:var(--ink-soft); font-size:15px; line-height:1;
     border-radius:3px;
   }
   .doc-card-delete:hover{ background:#fbeae8; color:#b3261e; }
-  .doc-empty{ color:var(--ink-soft); font-family:"Helvetica Neue",Arial,sans-serif; font-size:14px; padding:40px 0; text-align:center; }
+  .doc-empty{ color:var(--ink-soft); font-family:"Work Sans","Helvetica Neue",Arial,sans-serif; font-size:14px; padding:40px 0; text-align:center; }
   .danger-zone{ padding:20px 28px 40px; max-width:1000px; width:100%; margin:0 auto; }
   .danger-link{ background:none; border:none; color:#b3261e; opacity:0.7; font-size:12px; padding:4px 0; text-decoration:underline; cursor:pointer; }
   .danger-link:hover{ opacity:1; background:none; border:none; }
@@ -80,7 +83,7 @@
   /* ===================== Not-found screen ===================== */
   #notFoundScreen{ align-items:center; justify-content:center; text-align:center; gap:14px; }
   #notFoundScreen h2{ margin:0; font-size:18px; }
-  #notFoundScreen p{ color:var(--ink-soft); font-family:"Helvetica Neue",Arial,sans-serif; max-width:360px; }
+  #notFoundScreen p{ color:var(--ink-soft); font-family:"Work Sans","Helvetica Neue",Arial,sans-serif; max-width:360px; }
 
   /* ===================== Editor screen ===================== */
   #editorScreen header{
@@ -89,27 +92,27 @@
     flex-shrink:0; gap:12px; flex-wrap:wrap;
   }
   .header-left{ display:flex; flex-direction:column; gap:2px; min-width:0; }
-  .home-link{ font-family:"Helvetica Neue",Arial,sans-serif; font-size:12px; color:var(--ink-soft); align-self:flex-start; }
+  .home-link{ font-family:"Work Sans","Helvetica Neue",Arial,sans-serif; font-size:12px; color:var(--ink-soft); align-self:flex-start; }
   .home-link:hover{ color:var(--accent); text-decoration:underline; }
   #docTitleInput{
     font-family:"Iowan Old Style","Georgia",serif; font-size:16px; font-weight:600; color:var(--ink);
     border:none; background:transparent; padding:2px 0; outline:none; max-width:420px;
   }
   #docTitleInput:focus{ border-bottom:1px solid var(--accent); }
-  header .sub{ font-size:12px; color:var(--ink-soft); font-family:"Helvetica Neue",Arial,sans-serif; }
+  header .sub{ font-size:12px; color:var(--ink-soft); font-family:"Work Sans","Helvetica Neue",Arial,sans-serif; }
   .controls{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 
   .deleted-banner{
     display:none; align-items:center; gap:12px; justify-content:center;
     background:#fbeae8; color:#7a271f; border-bottom:1px solid #e0b4ae;
-    padding:8px 16px; font-family:"Helvetica Neue",Arial,sans-serif; font-size:12.5px; flex-shrink:0;
+    padding:8px 16px; font-family:"Work Sans","Helvetica Neue",Arial,sans-serif; font-size:12.5px; flex-shrink:0;
   }
   .deleted-banner button{ font-size:12px; padding:5px 12px; }
 
   .panes{ flex:1; display:flex; min-height:0; }
   .pane{ flex:1 1 50%; min-width:0; display:flex; flex-direction:column; height:100%; }
   .pane-label{
-    font-family:"Helvetica Neue",Arial,sans-serif;
+    font-family:"Work Sans","Helvetica Neue",Arial,sans-serif;
     font-size:11px; text-transform:uppercase; letter-spacing:0.08em;
     color:var(--ink-soft); padding:8px 20px;
     border-bottom:1px solid var(--rule); background:var(--paper); flex-shrink:0;
@@ -130,7 +133,7 @@
     width:380px; max-width:calc(100vw - 40px); max-height:70vh; overflow-y:auto;
     background:var(--paper-panel); border:1px solid var(--rule); border-radius:6px;
     box-shadow:0 6px 20px rgba(0,0,0,0.18); padding:14px 16px;
-    font-family:"Helvetica Neue",Arial,sans-serif; font-size:12px; color:var(--ink);
+    font-family:"Work Sans","Helvetica Neue",Arial,sans-serif; font-size:12px; color:var(--ink);
     text-transform:none; letter-spacing:normal;
   }
   .md-help:hover .md-help-panel, .md-help.open .md-help-panel, .md-help:focus-within .md-help-panel{ display:block; }
@@ -151,7 +154,7 @@
     display:flex; flex-shrink:0; flex-wrap:wrap;
     background:var(--paper);
     border-bottom:1px solid var(--rule);
-    font-family:"Helvetica Neue",Arial,sans-serif;
+    font-family:"Work Sans","Helvetica Neue",Arial,sans-serif;
   }
   .tab{
     display:flex; align-items:center;
