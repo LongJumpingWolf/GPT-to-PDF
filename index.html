@@ -670,7 +670,16 @@ function renderColumnsDom(){
   });
 }
 
-async function render(){
+// Renders the columns into the preview DOM (and, since titleAuto derives
+// from content, keeps the title in sync) - but does NOT write to
+// IndexedDB. Split out from render() specifically so opening a document
+// to look at it doesn't also silently re-save it: repeatedly overwriting
+// the same record with identical content still touches the underlying
+// storage engine on every write (most IndexedDB backends don't reclaim
+// space from an overwritten record in place, only during periodic
+// compaction), which is what was making usage creep up by a few KB every
+// time a document was merely opened and closed with no actual edits.
+async function renderPreview(){
   if(titleAuto){
     const suggested = deriveTitleFromColumns(columns);
     if(suggested !== docTitle){
@@ -683,10 +692,17 @@ async function render(){
     const html = marked.parse(preprocessImageSizes(columns[i] || ''));
     colEls[i].innerHTML = await resolveImages(html);
   }
+  document.title = (docTitle || 'Untitled note') + ' — Study Notes';
+}
+
+// The real save path - used for every actual edit (typing, formatting,
+// image insert, add/remove column). Opening a document should NOT go
+// through this; see renderPreview() above.
+async function render(){
+  await renderPreview();
   const ok = await persistDoc();
   statusEl.textContent = deletedElsewhere ? 'not saved (deleted elsewhere)' : (ok ? 'saved' : 'not saved (storage full)');
   updateStorageInfo();
-  document.title = (docTitle || 'Untitled note') + ' — Study Notes';
 }
 
 function renderTabs(){
@@ -1311,7 +1327,11 @@ async function showEditorScreen(id){
   editor.value = columns[activeCol] || '';
   renderTabs();
   renderColumnsDom();
-  await render();
+  // renderPreview(), not render() - merely opening a document to look at
+  // it is not an edit, and shouldn't write anything back to IndexedDB.
+  await renderPreview();
+  statusEl.textContent = 'saved';
+  updateStorageInfo();
 }
 
 function parseHash(){
