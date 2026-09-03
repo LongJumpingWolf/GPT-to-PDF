@@ -794,6 +794,22 @@ async function resetAllData(){
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+    // Closing and reopening the connection encourages the browser to
+    // actually compact/reclaim the freed space rather than just marking
+    // it deleted internally - see the note on navigator.storage.estimate()
+    // below for why the on-screen number may still lag behind this.
+    db.close();
+    dbPromise = null;
+  }catch(e){}
+  // The IndexedDB migration in loadSaved() only ever READS the old
+  // localStorage keys, never deletes them - so any pre-migration data
+  // (including old base64-embedded images from before this app used
+  // IndexedDB) can still be sitting there, counting toward the origin's
+  // total storage usage even though the app hasn't used it in ages. A
+  // full reset should actually be full.
+  try{
+    localStorage.removeItem(LEGACY_STORAGE_KEY_V2);
+    localStorage.removeItem(LEGACY_STORAGE_KEY_V3);
   }catch(e){}
   imgMetaCache.forEach(meta => { if(meta && meta.url) URL.revokeObjectURL(meta.url); });
   imgMetaCache.clear();
@@ -805,6 +821,13 @@ async function resetAllData(){
   renderColumnsDom();
   await render();
   await updateStorageInfo();
+  // navigator.storage.estimate() is an approximation, not a live byte
+  // count - Chrome/Firefox both cache it and only refresh on their own
+  // schedule, so it commonly reports stale (too-high) numbers for a
+  // stretch after a real deletion. The delete itself already happened
+  // above; this second check just gives the estimate a chance to catch up
+  // rather than implying the reset failed.
+  setTimeout(updateStorageInfo, 1500);
 }
 
 document.getElementById('resetAllBtn').addEventListener('click', async () => {
