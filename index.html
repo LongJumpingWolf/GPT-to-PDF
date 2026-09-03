@@ -164,11 +164,22 @@
      using the natural width the merged columns actually need - so every page uses that
      same width, with no fixed/standard paper-width restriction. */
   @media print{
+    /* Hide EVERYTHING at the body level except our own app container, then
+       allow-list back in just the printed page itself. The previous rule
+       only named our own UI elements (header, tabs, editor...) - anything
+       injected by a browser extension (overlay badges, toolbars, etc.)
+       lives outside that list entirely and printed right along with the
+       page. Hiding by exclusion instead of by name stops any third-party
+       content from bleeding into the export, not just our known chrome. */
+    body > *{ display:none !important; }
+    body > .app{ display:block !important; }
+
     header, .pane-label, .tabs, .divider, #editor, .pane:first-child{ display:none !important; }
-    body, html{ background:#fff !important; height:auto; }
-    .app, .panes, .pane, #previewTray{ display:block !important; height:auto !important; overflow:visible !important; padding:0 !important; }
+    body, html{ background:#fff !important; height:auto; margin:0 !important; }
+    .app, .panes, .pane, #previewTray{ display:block !important; height:auto !important; overflow:visible !important; padding:0 !important; margin:0 !important; }
     #page{ box-shadow:none !important; padding:0 !important; margin:0 !important; width:max-content !important; }
     #page .col code{ font-size:9px; }
+    #page .col p, #page .col li{ orphans:3; widows:3; }
     #page .col pre{ break-inside:avoid; }
     #page .col table{ break-inside:avoid; }
     #page .col img{ break-inside:avoid; }
@@ -719,8 +730,9 @@ document.getElementById('copyBtn').addEventListener('click', () => {
 function updatePrintPageSize(){
   const pageEl = document.getElementById('page');
   const widthPx = pageEl.scrollWidth;
-  const widthPt = Math.ceil(widthPx * 0.75);   // 96px/in -> 72pt/in
-  const heightPt = 841.89;                     // A4 height
+  const marginPt = 28;                                    // repeats on every physical page
+  const widthPt = Math.ceil(widthPx * 0.75) + marginPt * 2; // 96px/in -> 72pt/in, plus margins
+  const heightPt = 841.89;                                  // A4 height (includes its own margins)
 
   let styleEl = document.getElementById('dynamicPageSize');
   if(!styleEl){
@@ -728,7 +740,12 @@ function updatePrintPageSize(){
     styleEl.id = 'dynamicPageSize';
     document.head.appendChild(styleEl);
   }
-  styleEl.textContent = `@page{ size:${widthPt}pt ${heightPt}pt; margin:0; }`;
+  // @page margin (unlike padding on #page, which only appears once at the
+  // very top/bottom of the whole merged flow) is reapplied by the browser
+  // on every physical page it paginates into - this is what gives each
+  // printed page consistent edges instead of content running flush to the
+  // paper boundary on every page except the first and last.
+  styleEl.textContent = `@page{ size:${widthPt}pt ${heightPt}pt; margin:${marginPt}pt; }`;
 }
 // Also recompute on the browser's own print trigger (Ctrl+P / print menu),
 // not just our button - otherwise a manual print would use whatever size
