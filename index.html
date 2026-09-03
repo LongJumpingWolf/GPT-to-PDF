@@ -1080,8 +1080,15 @@ document.getElementById('deleteAllBtn').addEventListener('click', async () => {
   if(!confirm('Delete ALL documents and every embedded image, permanently? This cannot be undone.')) return;
   if(!confirm('This is your entire document library. Really delete everything?')) return;
   await deleteAllDocuments();
-  await renderHomeScreen();
-  setTimeout(updateStorageInfo, 1500);
+  // navigator.storage.estimate() has been shown to keep returning a
+  // stale, session-cached number even after the database is genuinely
+  // gone (confirmed via deleteDatabase() + DevTools inspection) - that's
+  // a browser-level caching quirk in the Storage API itself, not
+  // something further polling from this page can force to update. A
+  // full reload starts a fresh page/JS context, which browsers are far
+  // more likely to compute an accurate quota figure for than repeated
+  // estimate() calls within the same still-running session.
+  location.reload();
 });
 
 document.getElementById('homeLink').addEventListener('click', (e) => {
