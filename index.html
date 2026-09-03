@@ -3,10 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="robots" content="noindex, nofollow">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%9D%3C/text%3E%3C/svg%3E">
 <title>Study Note Editor</title>
-<script src="marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 <style>
   :root{
     --ink:#1c2430;
@@ -176,7 +174,7 @@
 
     header, .pane-label, .tabs, .divider, #editor, .pane:first-child{ display:none !important; }
     body, html{ background:#fff !important; height:auto; margin:0 !important; }
-    .app, .panes, .pane, #previewTray{ display:block !important; height:auto !important; overflow:visible !important; padding:0 !important; margin:0 !important; }
+    .app, .panes, .pane, #previewTray{ display:block !important; height:auto !important; overflow:visible !important; padding:0 !important; margin:0 !important; background:#fff !important; }
     #page{ box-shadow:none !important; padding:0 !important; margin:0 !important; width:max-content !important; }
     #page .col code{ font-size:9px; }
     #page .col p, #page .col li{ orphans:3; widows:3; }
@@ -728,8 +726,16 @@ document.getElementById('copyBtn').addEventListener('click', () => {
 // so long notes still paginate normally down the page. Images print at
 // their full stored resolution (nothing was downscaled on the way in).
 function updatePrintPageSize(){
-  const pageEl = document.getElementById('page');
-  const widthPx = pageEl.scrollWidth;
+  // Measure the columns' own width, not #page's. #page has 48px/46px of
+  // padding on screen, and width:max-content bakes that padding into
+  // #page.scrollWidth - but the print stylesheet zeroes that same padding
+  // out, so a page sized from the pre-print measurement ends up wider
+  // than what's actually rendered, leaving a visible gap of leftover
+  // background on the right of the real content. #columnsContainer has no
+  // padding of its own, so its width matches what #page renders at once
+  // its print padding is 0 - measuring it directly avoids the mismatch.
+  const columnsEl = document.getElementById('columnsContainer');
+  const widthPx = columnsEl.scrollWidth;
   const marginPt = 28;                                    // repeats on every physical page
   const widthPt = Math.ceil(widthPx * 0.75) + marginPt * 2; // 96px/in -> 72pt/in, plus margins
   const heightPt = 841.89;                                  // A4 height (includes its own margins)
