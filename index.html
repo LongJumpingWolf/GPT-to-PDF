@@ -1022,18 +1022,34 @@ window.addEventListener('keydown', (e) => {
 });
 
 async function deleteAllDocuments(){
+  // Using indexedDB.deleteDatabase() instead of clearing each store one
+  // by one. store.clear() only empties rows - the database's underlying
+  // file on disk stays allocated at whatever size it grew to, and
+  // browsers don't necessarily shrink it back down right away (or ever,
+  // without an idle-time compaction pass). deleteDatabase() removes the
+  // entire backing file, which is a much stronger signal to the browser
+  // to actually reclaim that space, rather than just marking rows as
+  // gone inside a file that's still sitting there at its old size.
   try{
-    const db = await openDB();
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction(['docs', 'images'], 'readwrite');
-      tx.objectStore('docs').clear();
-      tx.objectStore('images').clear();
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-    db.close();
-    dbPromise = null;
+    if(dbPromise){
+      const existingDb = await dbPromise;
+      existingDb.close();
+    }
   }catch(e){}
+  dbPromise = null;
+  await new Promise((resolve) => {
+    const req = indexedDB.deleteDatabase(DB_NAME);
+    req.onsuccess = () => resolve();
+    req.onerror = () => resolve(); // don't hang the UI if this fails
+    req.onblocked = () => {
+      // Another tab still has a connection open to this database, so the
+      // browser can't delete the file until that connection closes. Local
+      // in-memory state is cleared either way below; the delete itself
+      // will finish once other tabs are closed.
+      console.warn('Database delete blocked - close other tabs of this app for it to complete.');
+      resolve();
+    };
+  });
   try{
     localStorage.removeItem('study-note-editor-columns-v2');
     localStorage.removeItem('study-note-editor-columns-v3');
