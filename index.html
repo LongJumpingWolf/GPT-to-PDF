@@ -227,6 +227,9 @@
   .tab-close{ margin-left:8px; color:var(--ink-soft); font-size:13px; line-height:1; }
   .tab-close:hover{ color:var(--accent); }
   .tab-add{ font-weight:700; color:var(--accent); font-size:14px; padding:9px 16px; }
+  .tab.dragging{ opacity:0.4; }
+  .tab.drop-before{ box-shadow:inset 2px 0 0 0 var(--accent); }
+  .tab.drop-after{ box-shadow:inset -2px 0 0 0 var(--accent); }
 
   #editor{
     flex:1; width:100%; resize:none; border:none; outline:none;
@@ -829,6 +832,82 @@ async function render(){
   updateStorageInfo();
 }
 
+// Tab drag-to-reorder. Deliberately does NOT live-shift other tabs' DOM
+// positions during the drag (the way real browser tabs visually do) -
+// that would require moving actual tab button elements around mid-drag,
+// which leaves whatever tracks "which column does this button belong to"
+// stale unless it's re-synced constantly. Instead the tab order stays
+// put during the drag; a thin indicator shows where the drop WILL land
+// (drop-before/drop-after), and the actual columns array reorder - plus
+// a full renderTabs()/renderColumnsDom() rebuild - only happens once, on
+// drop. Simpler, and there's no DOM/data-model desync window to worry
+// about.
+let dragSourceIndex = null;
+let dropInsertBeforeIndex = null; // index (in the CURRENT/pre-move array) to insert before
+let dropIndicatorEl = null;
+
+function clearDropIndicator(){
+  if(dropIndicatorEl){
+    dropIndicatorEl.classList.remove('drop-before', 'drop-after');
+    dropIndicatorEl = null;
+  }
+}
+
+// Moves the column at fromIndex to end up immediately before whatever is
+// currently at toIndex (using CURRENT, pre-removal array indexing - the
+// same convention Array.prototype.splice's "shift everything after
+// removal" behavior requires accounting for, handled below).
+function moveColumn(fromIndex, toIndex){
+  if(fromIndex === toIndex) return;
+  const [moved] = columns.splice(fromIndex, 1);
+  let insertAt = toIndex;
+  if(fromIndex < toIndex) insertAt -= 1; // removal shifted everything after fromIndex left by one
+  insertAt = Math.max(0, Math.min(insertAt, columns.length));
+  columns.splice(insertAt, 0, moved);
+
+  // Keep activeCol pointing at the SAME content that moved - the same
+  // category of bug fixed for removeColumn() earlier: moving a column
+  // shifts every index between its old and new position, so activeCol
+  // has to shift with whichever content it was actually showing.
+  if(activeCol === fromIndex){
+    activeCol = insertAt;
+  } else if(fromIndex < activeCol && insertAt >= activeCol){
+    activeCol -= 1;
+  } else if(fromIndex > activeCol && insertAt <= activeCol){
+    activeCol += 1;
+  }
+
+  editor.value = columns[activeCol];
+  renderTabs();
+  renderColumnsDom();
+  render();
+}
+
+function commitTabDrop(){
+  if(dragSourceIndex !== null && dropInsertBeforeIndex !== null){
+    moveColumn(dragSourceIndex, dropInsertBeforeIndex);
+  }
+  dragSourceIndex = null;
+  dropInsertBeforeIndex = null;
+  clearDropIndicator();
+  document.querySelectorAll('.tab.dragging').forEach(el => el.classList.remove('dragging'));
+}
+// dragend ALWAYS fires after a drag ends, whether or not a 'drop' event
+// fired first (a successful drop still triggers dragend right after) -
+// and also fires on its own with NO 'drop' at all if the drag was
+// cancelled (Escape) or released somewhere that isn't a valid target.
+// This must only ever clean up state/visuals, never perform the actual
+// move itself - moveColumn() only ever runs from a 'drop' handler below.
+// Attaching the move logic here too would mean a CANCELLED drag still
+// commits whatever tab was hovered last before the cancellation, even
+// though the user never actually dropped it there.
+tabsEl.addEventListener('dragend', () => {
+  dragSourceIndex = null;
+  dropInsertBeforeIndex = null;
+  clearDropIndicator();
+  document.querySelectorAll('.tab.dragging').forEach(el => el.classList.remove('dragging'));
+});
+
 function renderTabs(){
   tabsEl.innerHTML = '';
   columns.forEach((_, i) => {
@@ -836,6 +915,7 @@ function renderTabs(){
     tab.type = 'button';
     tab.className = 'tab' + (i === activeCol ? ' active' : '');
     tab.dataset.col = i;
+    tab.draggable = true;
 
     const label = document.createElement('span');
     label.textContent = `Column ${i + 1}`;
@@ -856,6 +936,38 @@ function renderTabs(){
     }
 
     tab.addEventListener('click', () => switchTab(i));
+
+    tab.addEventListener('dragstart', (e) => {
+      dragSourceIndex = i;
+      tab.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try{ e.dataTransfer.setData('text/plain', String(i)); }catch(err){}
+    });
+    tab.addEventListener('dragover', (e) => {
+      e.preventDefault(); // required for this element to be a valid drop target at all
+      if(dragSourceIndex === null) return;
+      if(i === dragSourceIndex){
+        // Hovering back over the tab you picked up - treat a drop here
+        // as "put it back", not whatever target was hovered earlier in
+        // the same drag gesture.
+        clearDropIndicator();
+        dropInsertBeforeIndex = null;
+        return;
+      }
+      const rect = tab.getBoundingClientRect();
+      const before = (e.clientX - rect.left) < rect.width / 2;
+      if(dropIndicatorEl !== tab) clearDropIndicator();
+      tab.classList.remove('drop-before', 'drop-after');
+      tab.classList.add(before ? 'drop-before' : 'drop-after');
+      dropIndicatorEl = tab;
+      dropInsertBeforeIndex = before ? i : i + 1;
+    });
+    tab.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      commitTabDrop();
+    });
+
     tabsEl.appendChild(tab);
   });
 
@@ -865,6 +977,18 @@ function renderTabs(){
   addBtn.textContent = '+';
   addBtn.title = 'Add column';
   addBtn.addEventListener('click', addColumn);
+  // Dragging a tab past every other tab and onto "+" should still be a
+  // valid way to drop it at the very end.
+  addBtn.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if(dragSourceIndex === null) return;
+    clearDropIndicator();
+    dropInsertBeforeIndex = columns.length;
+  });
+  addBtn.addEventListener('drop', (e) => {
+    e.preventDefault();
+    commitTabDrop();
+  });
   tabsEl.appendChild(addBtn);
 }
 
