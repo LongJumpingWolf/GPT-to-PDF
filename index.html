@@ -206,6 +206,30 @@
     position:absolute; inset:0; opacity:0; width:100%; height:100%; border:none; padding:0; cursor:pointer;
   }
 
+  /* Export column picker */
+  .export-caret{ width:20px; padding:0; font-size:10px; }
+  .export-check-row{ display:flex; align-items:center; gap:8px; padding:5px 2px; font-size:13px; cursor:pointer; }
+  .export-check-row input{ cursor:pointer; }
+  .export-quick-row{ display:flex; gap:8px; margin-top:8px; padding-top:8px; border-top:1px solid var(--rule); }
+  .export-quick-row button{ font-size:11px; padding:4px 10px; border:1px solid var(--rule); border-radius:4px; background:transparent; cursor:pointer; color:var(--ink-soft); }
+  .export-quick-row button:hover{ border-color:var(--accent); color:var(--accent); }
+
+  /* Hiding a column for export via display:none leaves it in the DOM,
+     which matters: CSS structural selectors (:first-child, :last-child,
+     the .col+.col adjacent-sibling divider) match based on DOM position,
+     NOT visibility - they don't "skip over" a hidden element. Left as
+     the default rules alone, excluding e.g. the first column would still
+     put a border-left on the new visually-first column (because its
+     hidden predecessor still counts as its DOM-adjacent sibling) and
+     deny it the zero-left-padding treatment (because it's still not the
+     actual :first-child). .exporting overrides those structural rules
+     with explicit classes computed from the ACTUAL visible set instead. */
+  .columns.exporting > .col.export-excluded{ display:none !important; }
+  .columns.exporting > .col{ padding-left:30px !important; padding-right:30px !important; border-left:none !important; }
+  .columns.exporting > .col.export-visible-first{ padding-left:0 !important; }
+  .columns.exporting > .col.export-visible-last{ padding-right:0 !important; }
+  .columns.exporting > .col.export-visible-not-first{ border-left:1px solid var(--rule) !important; }
+
   .tabs{
     display:flex; flex-shrink:0; flex-wrap:wrap;
     background:var(--paper);
@@ -255,7 +279,7 @@
   }
 
   .columns{ display:flex; align-items:stretch; gap:0; }
-  .col{ flex:0 0 auto; width:max-content; padding:0 30px; }
+  .col{ flex:0 0 auto; width:max-content; padding:0 30px; background:var(--paper-panel); }
   .col:first-child{ padding-left:0; }
   .col:last-child{ padding-right:0; }
   .col + .col{ border-left:1px solid var(--rule); }
@@ -286,7 +310,7 @@
     display:block; max-width:520px; width:auto; height:auto;
     margin:0 0 14px 0; border:1px solid var(--rule); border-radius:2px;
   }
-  #page .col img.missing{ opacity:0.4; }
+  #page .col img.missing{ opacity:0.6; background:var(--mono-bg); border:1px dashed var(--ink-soft); object-fit:none; }
 
   /* Teleport: brief highlight on whichever block you just jumped to,
      in either direction, so it's obvious where you landed. */
@@ -377,7 +401,18 @@
       <button id="cleanupBtn">Clean images</button>
       <button id="deleteDocBtn" class="danger">Delete this document</button>
       <button id="copyBtn">Copy text</button>
-      <button id="exportBtn" class="primary">Export PDF</button>
+      <span class="color-tool" id="exportTool">
+        <button type="button" id="exportBtn" class="primary">Export PDF</button>
+        <button type="button" class="fmt-btn export-caret" id="exportCaretBtn" title="Choose which columns to export">&#9662;</button>
+        <div class="color-panel" id="exportPanel">
+          <div class="color-section-label">Columns to include</div>
+          <div id="exportColumnList"></div>
+          <div class="export-quick-row">
+            <button type="button" id="exportSelectAll">Select all</button>
+            <button type="button" id="exportSelectNone">Select none</button>
+          </div>
+        </div>
+      </span>
     </div>
   </header>
   <div class="panes">
@@ -761,8 +796,16 @@ async function resolveImages(html){
       imgEl.style.height = 'auto';
       imgEl.removeAttribute('data-pct');
     } else {
+      // Every other path sets an explicit width/height so layout is
+      // predictable - this one didn't, leaving the browser to render its
+      // own native "broken image" box with browser-dependent sizing,
+      // which can look like an unexplained dark/odd-sized artifact
+      // rather than an obvious "this image is unavailable" placeholder.
       imgEl.classList.add('missing');
       imgEl.alt = '(image unavailable)';
+      imgEl.style.width = '220px';
+      imgEl.style.height = '130px';
+      imgEl.style.maxWidth = 'none';
     }
   }
 
@@ -881,6 +924,7 @@ function moveColumn(fromIndex, toIndex){
   renderTabs();
   renderColumnsDom();
   render();
+  resetExportSelection();
 }
 
 function commitTabDrop(){
@@ -1009,6 +1053,7 @@ function addColumn(){
   renderTabs();
   renderColumnsDom();
   render();
+  resetExportSelection();
 }
 
 function removeColumn(idx){
@@ -1021,6 +1066,7 @@ function removeColumn(idx){
   renderTabs();
   renderColumnsDom();
   render();
+  resetExportSelection();
 }
 
 let debounceTimer;
@@ -1452,6 +1498,93 @@ document.getElementById('copyBtn').addEventListener('click', () => {
   setTimeout(() => btn.textContent = original, 1200);
 });
 
+/* =========================================================================
+   Export column picker: lets you export a subset of columns instead of
+   always all of them. This never touches the actual document data or
+   the normal on-screen preview - it's a purely temporary DOM state
+   applied right before print and reverted right after (see
+   cleanupExportHiding below).
+   ========================================================================= */
+let exportExcludedIndices = new Set(); // column indices to leave OUT of the export
+
+// Column indices become ambiguous the moment columns are added, removed,
+// or reordered - rather than risk carrying a stale exclusion forward
+// onto the WRONG column after indices shift, any structural change (or
+// loading a different document entirely) just resets to "export
+// everything", the same as a fresh document would show.
+function resetExportSelection(){
+  exportExcludedIndices = new Set();
+}
+
+function buildExportChecklist(){
+  const list = document.getElementById('exportColumnList');
+  list.innerHTML = '';
+  columns.forEach((_, i) => {
+    const row = document.createElement('label');
+    row.className = 'export-check-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !exportExcludedIndices.has(i);
+    cb.addEventListener('change', () => {
+      if(cb.checked) exportExcludedIndices.delete(i);
+      else exportExcludedIndices.add(i);
+    });
+    const span = document.createElement('span');
+    span.textContent = `Column ${i + 1}`;
+    row.appendChild(cb);
+    row.appendChild(span);
+    list.appendChild(row);
+  });
+}
+
+document.getElementById('exportCaretBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  buildExportChecklist();
+  const tool = document.getElementById('exportTool');
+  const willOpen = !tool.classList.contains('open');
+  document.querySelectorAll('.color-tool.open').forEach(el => el.classList.remove('open'));
+  if(willOpen) tool.classList.add('open');
+});
+document.getElementById('exportSelectAll').addEventListener('click', () => {
+  exportExcludedIndices.clear();
+  buildExportChecklist();
+});
+document.getElementById('exportSelectNone').addEventListener('click', () => {
+  columns.forEach((_, i) => exportExcludedIndices.add(i));
+  buildExportChecklist();
+});
+
+// Applies the temporary display:none + structural-class fixups described
+// in the .exporting CSS rules, based on whichever columns are currently
+// checked.
+function applyExportHiding(){
+  const visibleIndices = columns.map((_, i) => i).filter(i => !exportExcludedIndices.has(i));
+  document.getElementById('columnsContainer').classList.add('exporting');
+  colEls.forEach((el, i) => {
+    el.classList.toggle('export-excluded', exportExcludedIndices.has(i));
+    el.classList.remove('export-visible-first', 'export-visible-last', 'export-visible-not-first');
+  });
+  visibleIndices.forEach((colIdx, pos) => {
+    const el = colEls[colIdx];
+    if(!el) return;
+    if(pos === 0) el.classList.add('export-visible-first');
+    else el.classList.add('export-visible-not-first');
+    if(pos === visibleIndices.length - 1) el.classList.add('export-visible-last');
+  });
+  return visibleIndices;
+}
+function cleanupExportHiding(){
+  document.getElementById('columnsContainer').classList.remove('exporting');
+  colEls.forEach(el => {
+    el.classList.remove('export-excluded', 'export-visible-first', 'export-visible-last', 'export-visible-not-first');
+  });
+}
+// 'afterprint' fires whether the dialog was actually printed or
+// cancelled - the normal cleanup path. The timeout is a safety net only,
+// in case some browser edge case never fires it at all; harmless to run
+// twice since removing already-removed classes is a no-op.
+window.addEventListener('afterprint', cleanupExportHiding);
+
 function updatePrintPageSize(){
   const columnsEl = document.getElementById('columnsContainer');
   const widthPx = columnsEl.scrollWidth;
@@ -1471,8 +1604,20 @@ function updatePrintPageSize(){
 window.addEventListener('beforeprint', updatePrintPageSize);
 
 document.getElementById('exportBtn').addEventListener('click', () => {
+  document.getElementById('exportTool').classList.remove('open');
+  const visibleIndices = applyExportHiding();
+  if(visibleIndices.length === 0){
+    cleanupExportHiding();
+    alert('Select at least one column to export.');
+    return;
+  }
+  // updatePrintPageSize() measures columnsContainer.scrollWidth, which
+  // now only reflects the still-visible columns (display:none elements
+  // contribute nothing to it) - the exported page is sized to exactly
+  // what's actually being exported, not the full document.
   updatePrintPageSize();
   window.print();
+  setTimeout(cleanupExportHiding, 3000); // safety net if afterprint never fires
 });
 
 document.getElementById('cleanupBtn').addEventListener('click', async () => {
@@ -1663,6 +1808,7 @@ async function showEditorScreen(id){
   currentDocCreatedAt = rec.createdAt || Date.now();
   deletedElsewhere = false;
   updateDeletedBanner(false);
+  resetExportSelection(); // a different document's column indices mean nothing here
   columns = (Array.isArray(rec.columns) && rec.columns.length) ? rec.columns : DEFAULT_COLUMNS.slice();
   activeCol = Math.min(rec.activeCol || 0, columns.length - 1);
   docTitle = rec.title || 'Untitled note';
