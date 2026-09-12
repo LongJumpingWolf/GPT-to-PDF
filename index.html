@@ -353,6 +353,13 @@
     font-size:13px; font-family:"Work Sans","Helvetica Neue",Arial,sans-serif; padding:0;
   }
   .sheet-page-editing td:focus-within{ background:var(--accent-soft); }
+  .sheet-page-editing th{
+    background:var(--paper); color:var(--ink-soft); font-weight:600; font-size:11.5px;
+    text-align:center; cursor:pointer; user-select:none;
+  }
+  .sheet-page-editing th:hover{ background:var(--accent-soft); color:var(--accent); }
+  .sheet-page-editing td.sheet-cell-selected{ background:var(--accent-soft); }
+  .sheet-page-editing td.sheet-cell-selected input{ background:transparent; }
 
   /* Teleport: brief highlight on whichever block you just jumped to,
      in either direction, so it's obvious where you landed. */
@@ -562,6 +569,8 @@
         <button type="button" class="fmt-btn" id="sheetAddColBtn" title="Add column">+ Col</button>
         <button type="button" class="fmt-btn" id="sheetDelRowBtn" title="Remove last row">&minus; Row</button>
         <button type="button" class="fmt-btn" id="sheetDelColBtn" title="Remove last column">&minus; Col</button>
+        <span class="toolbar-sep"></span>
+        <button type="button" class="fmt-btn" id="sheetCopyMarkdownBtn" title="Copy the selected range as a Markdown table">Copy as Markdown</button>
       </div>
       <div id="sheetEditorWrap" style="display:none;">
         <table id="sheetEditorTable" class="sheet-page sheet-page-editing"></table>
@@ -579,6 +588,12 @@
   </div>
 </div>
 
+<div class="teleport-menu" id="sheetHeaderMenu">
+  <button type="button" id="sheetHeaderInsertBefore"></button>
+  <button type="button" id="sheetHeaderInsertAfter"></button>
+  <button type="button" id="sheetHeaderDelete"></button>
+</div>
+
 <div class="teleport-menu" id="addColumnMenu">
   <button type="button" id="addTextColumnBtn">Text column</button>
   <button type="button" id="addCanvasColumnBtn">Freeflow canvas</button>
@@ -590,6 +605,9 @@
 </div>
 
 <script src="storage.js"></script>
+<script src="columns.js"></script>
+<script src="canvas.js"></script>
+<script src="sheet.js"></script>
 <script>
 marked.setOptions({ gfm:true, breaks:false });
 
@@ -725,172 +743,6 @@ function preprocessImageSizes(text){
     const safeAlt = alt.replace(/"/g, '&quot;');
     return `<img src="${src}" alt="${safeAlt}" data-pct="${pct}">`;
   });
-}
-
-/* =========================================================================
-   Column types: text (default/markdown), canvas (freeflow), sheet
-   (spreadsheet). Deliberately NOT a schema change to the columns array
-   itself - it stays string[], exactly as every existing document already
-   has it stored. A canvas/sheet column is just a normal string that
-   happens to start with a type marker followed by a JSON blob:
-     <!--type:canvas-->{"width":720,"height":480,"elements":[...]}
-     <!--type:sheet-->{"rows":6,"cols":4,"cells":{"0,0":"..."}}
-   A column with no marker is plain markdown, unchanged from before.
-
-   This keeps every existing piece of column-level machinery working
-   without modification: drag-reorder, the export column picker, delete
-   column, and - importantly - image garbage collection, which just does
-   a blind regex scan of each column's raw text for "img://<id>"
-   occurrences. Canvas images are stored as that exact same
-   "img://<id>" string inside their element's JSON, so the existing GC
-   scanner finds them with zero changes, whether the surrounding text is
-   markdown or JSON.
-   ========================================================================= */
-const CANVAS_MARKER = '<!--type:canvas-->';
-const SHEET_MARKER = '<!--type:sheet-->';
-
-function getColumnType(text){
-  const t = text || '';
-  if(t.startsWith(CANVAS_MARKER)) return 'canvas';
-  if(t.startsWith(SHEET_MARKER)) return 'sheet';
-  return 'text';
-}
-
-function parseCanvasData(text){
-  try{
-    const json = (text || '').slice(CANVAS_MARKER.length).replace(/^\n/, '');
-    const data = JSON.parse(json);
-    return {
-      width: (typeof data.width === 'number' && data.width > 0) ? data.width : 720,
-      height: (typeof data.height === 'number' && data.height > 0) ? data.height : 480,
-      elements: Array.isArray(data.elements) ? data.elements : []
-    };
-  }catch(e){
-    return { width:720, height:480, elements:[] };
-  }
-}
-function serializeCanvasData(data){
-  return CANVAS_MARKER + '\n' + JSON.stringify({ width:data.width, height:data.height, elements:data.elements });
-}
-function defaultCanvasText(){
-  return serializeCanvasData({ width:720, height:480, elements:[] });
-}
-
-function parseSheetData(text){
-  try{
-    const json = (text || '').slice(SHEET_MARKER.length).replace(/^\n/, '');
-    const data = JSON.parse(json);
-    return {
-      rows: (typeof data.rows === 'number' && data.rows > 0) ? data.rows : 6,
-      cols: (typeof data.cols === 'number' && data.cols > 0) ? data.cols : 4,
-      cells: (data.cells && typeof data.cells === 'object') ? data.cells : {}
-    };
-  }catch(e){
-    return { rows:6, cols:4, cells:{} };
-  }
-}
-function serializeSheetData(data){
-  return SHEET_MARKER + '\n' + JSON.stringify({ rows:data.rows, cols:data.cols, cells:data.cells });
-}
-function defaultSheetText(){
-  return serializeSheetData({ rows:6, cols:4, cells:{} });
-}
-
-function escapeHtml(s){
-  return (s || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-// ---- Pure data-transform functions (no DOM, no globals) - these are the
-// parts most worth testing rigorously, since a math mistake here would
-// silently misplace someone's content rather than throw an error. ----
-
-// Extends the canvas in one direction. Extending right/bottom just grows
-// the canvas; extending left/top ALSO shifts every element's position by
-// the same amount, so existing content stays visually anchored in place
-// while new blank space opens up on the specified edge - the same
-// convention Photoshop's "Canvas Size" dialog uses, rather than content
-// silently sliding to a new position relative to the (moved) origin.
-function addCanvasSpace(data, direction, amount){
-  const amt = Math.max(0, Math.round(Number(amount)) || 0);
-  const next = { width:data.width, height:data.height, elements: data.elements.map(el => Object.assign({}, el)) };
-  if(amt === 0) return next;
-  if(direction === 'left'){
-    next.width += amt;
-    next.elements.forEach(el => { el.x += amt; });
-  } else if(direction === 'right'){
-    next.width += amt;
-  } else if(direction === 'top'){
-    next.height += amt;
-    next.elements.forEach(el => { el.y += amt; });
-  } else if(direction === 'bottom'){
-    next.height += amt;
-  }
-  return next;
-}
-
-function addSheetRow(data){
-  return { rows: data.rows + 1, cols: data.cols, cells: Object.assign({}, data.cells) };
-}
-function addSheetCol(data){
-  return { rows: data.rows, cols: data.cols + 1, cells: Object.assign({}, data.cells) };
-}
-// Removing a row/col drops any cell values that fell in it, and re-keys
-// nothing else - cells are keyed by "row,col" and rows/cols are only
-// ever removed from the END, so every remaining cell's key is still
-// valid without renumbering.
-function removeSheetRow(data){
-  if(data.rows <= 1) return data;
-  const newRows = data.rows - 1;
-  const cells = {};
-  Object.keys(data.cells).forEach(key => {
-    const r = parseInt(key.split(',')[0], 10);
-    if(r < newRows) cells[key] = data.cells[key];
-  });
-  return { rows:newRows, cols:data.cols, cells };
-}
-function removeSheetCol(data){
-  if(data.cols <= 1) return data;
-  const newCols = data.cols - 1;
-  const cells = {};
-  Object.keys(data.cells).forEach(key => {
-    const c = parseInt(key.split(',')[1], 10);
-    if(c < newCols) cells[key] = data.cells[key];
-  });
-  return { rows:data.rows, cols:newCols, cells };
-}
-
-// ---- Static (non-interactive) rendering for the preview pane / PDF
-// export - reuses resolveImages() (via the img://<id> src convention)
-// exactly like markdown images do, so canvas images get the same
-// lossless-storage and "image unavailable" fallback handling for free.
-function renderCanvasHTML(data){
-  const elementsHtml = data.elements.map(el => {
-    const style = `left:${el.x}px;top:${el.y}px;width:${el.width}px;height:${el.height}px;`;
-    if(el.type === 'text'){
-      return `<div class="canvas-el canvas-el-text" style="${style}">${escapeHtml(el.text || '')}</div>`;
-    }
-    if(el.type === 'image'){
-      return `<div class="canvas-el canvas-el-image" style="${style}"><img src="${escapeHtml(el.src || '')}" alt=""></div>`;
-    }
-    return '';
-  }).join('');
-  return `<div class="canvas-page" style="width:${data.width}px;height:${data.height}px;">${elementsHtml}</div>`;
-}
-function renderSheetHTML(data){
-  let rows = '';
-  for(let r = 0; r < data.rows; r++){
-    let cells = '';
-    for(let c = 0; c < data.cols; c++){
-      const val = data.cells[r + ',' + c] || '';
-      cells += `<td>${escapeHtml(val)}</td>`;
-    }
-    rows += `<tr>${cells}</tr>`;
-  }
-  return `<table class="sheet-page">${rows}</table>`;
 }
 
 /* =========================================================================
@@ -1712,302 +1564,6 @@ imageInput.addEventListener('change', () => {
     Array.from(imageInput.files).forEach(insertImageFile);
   }
   imageInput.value = '';
-});
-
-/* =========================================================================
-   Canvas (freeflow) interactive editor - drag/resize text boxes and
-   images anywhere, plus the "add space" tool that grows the canvas in a
-   given direction. All persistence goes through saveCanvasData(), which
-   serializes back into columns[activeCol] via the same string-based
-   representation the static preview renderer reads - there is no
-   separate "live" in-memory canvas state that could drift from what's
-   actually saved.
-   ========================================================================= */
-function getCurrentCanvasData(){
-  return parseCanvasData(columns[activeCol] || '');
-}
-function saveCanvasData(data){
-  columns[activeCol] = serializeCanvasData(data);
-  render();
-}
-function newElementId(){
-  return crypto.randomUUID ? crypto.randomUUID() : ('el-' + Date.now() + '-' + Math.random().toString(36).slice(2));
-}
-
-// Resolves an img://<id> reference to a displayable blob URL, reusing
-// the same cache resolveImages() populates - a canvas image and a
-// markdown image referencing the same id share one cached object URL
-// rather than creating a second one.
-async function resolveSingleImageSrc(srcRef){
-  if(!srcRef || !srcRef.startsWith('img://')) return null;
-  const id = srcRef.slice('img://'.length);
-  let meta = imgMetaCache.get(id);
-  if(!meta){
-    const rec = await idbGet('images', id);
-    if(rec && rec.blob){
-      meta = { url: URL.createObjectURL(rec.blob), width: rec.width || null, height: rec.height || null };
-      imgMetaCache.set(id, meta);
-    }
-  }
-  return meta ? meta.url : null;
-}
-
-function makeCanvasElDraggable(div, elId){
-  div.addEventListener('mousedown', (e) => {
-    if(e.target.closest('.canvas-resize-handle') || e.target.closest('.canvas-el-delete') || e.target.tagName === 'TEXTAREA') return;
-    e.preventDefault();
-    const startX = e.clientX, startY = e.clientY;
-    const origLeft = parseFloat(div.style.left) || 0;
-    const origTop = parseFloat(div.style.top) || 0;
-    function onMove(ev){
-      const dx = ev.clientX - startX, dy = ev.clientY - startY;
-      div.style.left = Math.max(0, origLeft + dx) + 'px';
-      div.style.top = Math.max(0, origTop + dy) + 'px';
-    }
-    function onUp(){
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      const data = getCurrentCanvasData();
-      const target = data.elements.find(x => x.id === elId);
-      if(target){
-        target.x = parseFloat(div.style.left) || 0;
-        target.y = parseFloat(div.style.top) || 0;
-      }
-      saveCanvasData(data);
-    }
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  });
-}
-function makeCanvasElResizable(handle, div, elId){
-  handle.addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const startX = e.clientX, startY = e.clientY;
-    const origWidth = parseFloat(div.style.width) || 100;
-    const origHeight = parseFloat(div.style.height) || 60;
-    function onMove(ev){
-      const dx = ev.clientX - startX, dy = ev.clientY - startY;
-      div.style.width = Math.max(20, origWidth + dx) + 'px';
-      div.style.height = Math.max(20, origHeight + dy) + 'px';
-    }
-    function onUp(){
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      const data = getCurrentCanvasData();
-      const target = data.elements.find(x => x.id === elId);
-      if(target){
-        target.width = parseFloat(div.style.width) || 100;
-        target.height = parseFloat(div.style.height) || 60;
-      }
-      saveCanvasData(data);
-    }
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  });
-}
-
-function buildCanvasElementDom(el){
-  const div = document.createElement('div');
-  div.className = 'canvas-el ' + (el.type === 'text' ? 'canvas-el-text' : 'canvas-el-image');
-  div.dataset.id = el.id;
-  div.style.left = el.x + 'px';
-  div.style.top = el.y + 'px';
-  div.style.width = el.width + 'px';
-  div.style.height = el.height + 'px';
-
-  if(el.type === 'text'){
-    const ta = document.createElement('textarea');
-    ta.value = el.text || '';
-    ta.addEventListener('mousedown', (e) => e.stopPropagation());
-    ta.addEventListener('input', () => {
-      const data = getCurrentCanvasData();
-      const target = data.elements.find(x => x.id === el.id);
-      if(target) target.text = ta.value;
-      saveCanvasData(data);
-    });
-    div.appendChild(ta);
-  } else if(el.type === 'image'){
-    const img = document.createElement('img');
-    img.alt = '';
-    img.draggable = false;
-    resolveSingleImageSrc(el.src).then(url => { if(url) img.src = url; });
-    div.appendChild(img);
-  }
-
-  const del = document.createElement('button');
-  del.type = 'button';
-  del.className = 'canvas-el-delete';
-  del.textContent = '\u00d7';
-  del.title = 'Delete';
-  del.addEventListener('mousedown', (e) => e.stopPropagation());
-  del.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const data = getCurrentCanvasData();
-    data.elements = data.elements.filter(x => x.id !== el.id);
-    saveCanvasData(data);
-    renderCanvasEditor(data);
-  });
-  div.appendChild(del);
-
-  const handle = document.createElement('div');
-  handle.className = 'canvas-resize-handle';
-  div.appendChild(handle);
-
-  makeCanvasElDraggable(div, el.id);
-  makeCanvasElResizable(handle, div, el.id);
-  return div;
-}
-
-function renderCanvasEditor(data){
-  const surface = document.getElementById('canvasEditorSurface');
-  surface.style.width = data.width + 'px';
-  surface.style.height = data.height + 'px';
-  surface.innerHTML = '';
-  data.elements.forEach(el => surface.appendChild(buildCanvasElementDom(el)));
-}
-
-function addCanvasImageElement(data, id, width, height){
-  let w = width || 200, h = height || 150;
-  const maxW = Math.min(data.width - 40, 400);
-  if(w > maxW && w > 0){ h = h * (maxW / w); w = maxW; }
-  const count = data.elements.length;
-  data.elements.push({
-    id: newElementId(), type:'image',
-    x: 20 + (count % 5) * 20, y: 20 + (count % 5) * 20,
-    width: Math.round(w), height: Math.round(h), src: 'img://' + id
-  });
-  return data;
-}
-
-document.getElementById('canvasAddTextBtn').addEventListener('click', () => {
-  const data = getCurrentCanvasData();
-  const count = data.elements.length;
-  data.elements.push({ id:newElementId(), type:'text', x:20 + (count % 5) * 20, y:20 + (count % 5) * 20, width:220, height:70, text:'Text' });
-  saveCanvasData(data);
-  renderCanvasEditor(data);
-});
-
-document.getElementById('canvasAddImageBtn').addEventListener('click', () => {
-  document.getElementById('canvasImageInput').click();
-});
-document.getElementById('canvasImageInput').addEventListener('change', async () => {
-  const input = document.getElementById('canvasImageInput');
-  const file = input.files && input.files[0];
-  input.value = '';
-  if(!file || !isImageFile(file)) return;
-  try{
-    const { id, width, height } = await storeImageBlobFromFile(file);
-    const data = addCanvasImageElement(getCurrentCanvasData(), id, width, height);
-    saveCanvasData(data);
-    renderCanvasEditor(data);
-  }catch(e){ console.error(e); }
-});
-
-// Paste/drop images directly onto the canvas surface - gated on the
-// active column actually being a canvas, since this is a document-level
-// listener (the canvas surface isn't a native text input the way the
-// markdown textarea is, so paste has to be caught at a higher level) and
-// must not steal paste events meant for the markdown editor.
-document.addEventListener('paste', (e) => {
-  if(getColumnType(columns[activeCol]) !== 'canvas') return;
-  const items = (e.clipboardData || window.clipboardData).items;
-  const imageFiles = [];
-  for(const item of items){
-    if(item.type && item.type.startsWith('image/')) imageFiles.push(item.getAsFile());
-  }
-  if(!imageFiles.length) return;
-  e.preventDefault();
-  imageFiles.forEach(async (file) => {
-    try{
-      const { id, width, height } = await storeImageBlobFromFile(file);
-      const data = addCanvasImageElement(getCurrentCanvasData(), id, width, height);
-      saveCanvasData(data);
-      renderCanvasEditor(data);
-    }catch(err){ console.error(err); }
-  });
-});
-document.getElementById('canvasEditorSurface').addEventListener('dragover', (e) => e.preventDefault());
-document.getElementById('canvasEditorSurface').addEventListener('drop', async (e) => {
-  e.preventDefault();
-  const files = e.dataTransfer && e.dataTransfer.files;
-  if(!files || !files.length) return;
-  for(const file of Array.from(files)){
-    if(!isImageFile(file)) continue;
-    try{
-      const { id, width, height } = await storeImageBlobFromFile(file);
-      const data = addCanvasImageElement(getCurrentCanvasData(), id, width, height);
-      saveCanvasData(data);
-      renderCanvasEditor(data);
-    }catch(err){ console.error(err); }
-  }
-});
-
-function applyCanvasSpaceDirection(direction){
-  const amount = parseFloat(document.getElementById('canvasSpaceAmount').value);
-  if(!(amount > 0)) return;
-  const data = addCanvasSpace(getCurrentCanvasData(), direction, amount);
-  saveCanvasData(data);
-  renderCanvasEditor(data);
-}
-document.getElementById('canvasSpaceLeftBtn').addEventListener('click', () => applyCanvasSpaceDirection('left'));
-document.getElementById('canvasSpaceRightBtn').addEventListener('click', () => applyCanvasSpaceDirection('right'));
-document.getElementById('canvasSpaceTopBtn').addEventListener('click', () => applyCanvasSpaceDirection('top'));
-document.getElementById('canvasSpaceBottomBtn').addEventListener('click', () => applyCanvasSpaceDirection('bottom'));
-
-/* =========================================================================
-   Spreadsheet interactive editor - a plain editable grid. No formulas,
-   no cell formatting, no merged cells: text/number values only, keyed by
-   "row,col" in the same JSON-in-string representation as canvas data.
-   ========================================================================= */
-function getCurrentSheetData(){
-  return parseSheetData(columns[activeCol] || '');
-}
-function saveSheetData(data){
-  columns[activeCol] = serializeSheetData(data);
-  render();
-}
-function renderSheetEditor(data){
-  const table = document.getElementById('sheetEditorTable');
-  table.innerHTML = '';
-  for(let r = 0; r < data.rows; r++){
-    const tr = document.createElement('tr');
-    for(let c = 0; c < data.cols; c++){
-      const td = document.createElement('td');
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.value = data.cells[r + ',' + c] || '';
-      input.addEventListener('input', () => {
-        const d2 = getCurrentSheetData();
-        const key = r + ',' + c;
-        if(input.value){ d2.cells[key] = input.value; } else { delete d2.cells[key]; }
-        saveSheetData(d2);
-      });
-      td.appendChild(input);
-      tr.appendChild(td);
-    }
-    table.appendChild(tr);
-  }
-}
-document.getElementById('sheetAddRowBtn').addEventListener('click', () => {
-  const data = addSheetRow(getCurrentSheetData());
-  saveSheetData(data);
-  renderSheetEditor(data);
-});
-document.getElementById('sheetAddColBtn').addEventListener('click', () => {
-  const data = addSheetCol(getCurrentSheetData());
-  saveSheetData(data);
-  renderSheetEditor(data);
-});
-document.getElementById('sheetDelRowBtn').addEventListener('click', () => {
-  const data = removeSheetRow(getCurrentSheetData());
-  saveSheetData(data);
-  renderSheetEditor(data);
-});
-document.getElementById('sheetDelColBtn').addEventListener('click', () => {
-  const data = removeSheetCol(getCurrentSheetData());
-  saveSheetData(data);
-  renderSheetEditor(data);
 });
 
 /* =========================================================================
