@@ -360,11 +360,27 @@
   .sheet-page-editing td:focus-within{ background:var(--accent-soft); }
   .sheet-page-editing th{
     background:var(--paper); color:var(--ink-soft); font-weight:600; font-size:11.5px;
-    text-align:center; cursor:pointer; user-select:none;
+    text-align:center; cursor:pointer; user-select:none; position:relative;
   }
   .sheet-page-editing th:hover{ background:var(--accent-soft); color:var(--accent); }
   .sheet-page-editing td.sheet-cell-selected{ background:var(--accent-soft); }
   .sheet-page-editing td.sheet-cell-selected input{ background:transparent; }
+
+  .sheet-col-resize-handle{
+    position:absolute; top:0; right:-3px; width:6px; height:100%; cursor:col-resize; z-index:5;
+  }
+  .sheet-row-resize-handle{
+    position:absolute; left:0; bottom:-3px; width:100%; height:6px; cursor:row-resize; z-index:5;
+  }
+  /* Frozen header row/column: sticky positioning only makes sense while
+     actively scrolling the interactive editor - the static preview/PDF
+     export renders the whole table flat, so this is scoped to
+     .sheet-page-editing only, not .sheet-page. Applied per-cell (not to
+     the <tr> itself) since position:sticky on a table row isn't
+     reliably supported the way sticky on individual cells is. */
+  .sheet-page-editing.sheet-frozen tr:first-child th{ position:sticky; top:0; z-index:6; }
+  .sheet-page-editing.sheet-frozen th.sheet-row-header{ position:sticky; left:0; z-index:4; }
+  .sheet-page-editing.sheet-frozen tr:first-child th.sheet-frozen-corner{ left:0; z-index:8; }
 
   /* Teleport: brief highlight on whichever block you just jumped to,
      in either direction, so it's obvious where you landed. */
@@ -583,6 +599,42 @@
         <button type="button" class="fmt-btn" id="sheetAddColBtn" title="Add column">+ Col</button>
         <button type="button" class="fmt-btn" id="sheetDelRowBtn" title="Remove last row">&minus; Row</button>
         <button type="button" class="fmt-btn" id="sheetDelColBtn" title="Remove last column">&minus; Col</button>
+        <span class="toolbar-sep"></span>
+        <button type="button" class="fmt-btn" id="sheetBoldBtn" title="Bold selected cells"><b>B</b></button>
+        <button type="button" class="fmt-btn" id="sheetItalicBtn" title="Italic selected cells"><i>I</i></button>
+        <span class="color-tool" id="sheetTextColorTool">
+          <button type="button" class="fmt-btn color-trigger" id="sheetTextColorBtn" title="Text color">
+            <span class="color-icon">A</span><span class="tool-swatch-bar" id="sheetTextColorSwatch"></span>
+          </button>
+          <div class="color-panel" id="sheetTextColorPanel">
+            <div class="color-section-label">Standard</div>
+            <div class="color-grid" id="sheetTextColorStandard"></div>
+            <div class="color-section-label" id="sheetTextColorRecentLabel" style="display:none">Recent</div>
+            <div class="color-grid" id="sheetTextColorRecent"></div>
+            <div class="color-section-label">Custom</div>
+            <label class="color-add-swatch" title="Pick any color">+<input type="color" id="sheetTextColorCustom" value="#1c2430"></label>
+          </div>
+        </span>
+        <span class="color-tool" id="sheetHighlightTool">
+          <button type="button" class="fmt-btn color-trigger" id="sheetHighlightBtn" title="Cell fill color">
+            <span class="color-icon">&#9635;</span><span class="tool-swatch-bar" id="sheetHighlightSwatch"></span>
+          </button>
+          <div class="color-panel" id="sheetHighlightPanel">
+            <div class="color-section-label">Standard</div>
+            <div class="color-grid" id="sheetHighlightStandard"></div>
+            <div class="color-section-label" id="sheetHighlightRecentLabel" style="display:none">Recent</div>
+            <div class="color-grid" id="sheetHighlightRecent"></div>
+            <div class="color-section-label">Custom</div>
+            <label class="color-add-swatch" title="Pick any color">+<input type="color" id="sheetHighlightCustom" value="#fff176"></label>
+          </div>
+        </span>
+        <button type="button" class="fmt-btn" id="sheetAlignLeftBtn" title="Align left">&#8676;</button>
+        <button type="button" class="fmt-btn" id="sheetAlignCenterBtn" title="Align center">&#8596;</button>
+        <button type="button" class="fmt-btn" id="sheetAlignRightBtn" title="Align right">&#8677;</button>
+        <span class="toolbar-sep"></span>
+        <button type="button" class="fmt-btn" id="sheetMergeBtn" title="Merge selected cells">Merge</button>
+        <button type="button" class="fmt-btn" id="sheetUnmergeBtn" title="Unmerge selected cells">Unmerge</button>
+        <button type="button" class="fmt-btn" id="sheetFreezeBtn" title="Freeze the header row and first column">Freeze</button>
         <span class="toolbar-sep"></span>
         <button type="button" class="fmt-btn" id="sheetCopyMarkdownBtn" title="Copy the selected range as a Markdown table">Copy as Markdown</button>
       </div>
@@ -1454,6 +1506,38 @@ setupColorTool({
 });
 updateToolSwatch('textColorSwatch', lastTextColor || TEXT_COLORS[0]);
 updateToolSwatch('highlightSwatch', lastHighlightColor || HIGHLIGHT_COLORS[0]);
+
+// Sheet cell text color / fill color - reuses the exact same color-tool
+// popover (and the SAME recent-color history keys, so a color picked in
+// either the markdown toolbar or here shows up as "recent" in both).
+function applySheetTextColor(hex){
+  if(!sheetSelection) return;
+  const data = applyCellFormatValue(getCurrentSheetData(), sheetSelection, 'color', hex);
+  saveSheetData(data);
+  renderSheetEditor(data);
+  updateToolSwatch('sheetTextColorSwatch', hex);
+}
+function applySheetHighlightColor(hex){
+  if(!sheetSelection) return;
+  const data = applyCellFormatValue(getCurrentSheetData(), sheetSelection, 'highlight', hex);
+  saveSheetData(data);
+  renderSheetEditor(data);
+  updateToolSwatch('sheetHighlightSwatch', hex);
+}
+setupColorTool({
+  toolId:'sheetTextColorTool', btnId:'sheetTextColorBtn',
+  standardGridId:'sheetTextColorStandard', recentGridId:'sheetTextColorRecent', recentLabelId:'sheetTextColorRecentLabel',
+  customInputId:'sheetTextColorCustom', standardColors:TEXT_COLORS, historyKey:'mdEditorTextColorHistory',
+  onApply: applySheetTextColor
+});
+setupColorTool({
+  toolId:'sheetHighlightTool', btnId:'sheetHighlightBtn',
+  standardGridId:'sheetHighlightStandard', recentGridId:'sheetHighlightRecent', recentLabelId:'sheetHighlightRecentLabel',
+  customInputId:'sheetHighlightCustom', standardColors:HIGHLIGHT_COLORS, historyKey:'mdEditorHighlightColorHistory',
+  onApply: applySheetHighlightColor
+});
+updateToolSwatch('sheetTextColorSwatch', lastTextColor || TEXT_COLORS[0]);
+updateToolSwatch('sheetHighlightSwatch', lastHighlightColor || HIGHLIGHT_COLORS[0]);
 
 document.addEventListener('click', (e) => {
   document.querySelectorAll('.color-tool.open').forEach(tool => {
