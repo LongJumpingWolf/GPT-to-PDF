@@ -245,6 +245,121 @@ function elementsIntersectingRect(elements, rect){
     .map(el => el.id);
 }
 
+/* ---- Align / distribute / nudge - pure geometry, operating on
+   whichever elements are in `ids`. ---- */
+function alignElements(data, ids, mode){
+  const idSet = new Set(ids);
+  const targets = data.elements.filter(el => idSet.has(el.id));
+  if(targets.length < 2) return data; // nothing meaningful to align against
+  let ref;
+  if(mode === 'left') ref = Math.min.apply(null, targets.map(el => el.x));
+  else if(mode === 'right') ref = Math.max.apply(null, targets.map(el => el.x + el.width));
+  else if(mode === 'hcenter'){
+    const minX = Math.min.apply(null, targets.map(el => el.x));
+    const maxX = Math.max.apply(null, targets.map(el => el.x + el.width));
+    ref = (minX + maxX) / 2;
+  } else if(mode === 'top') ref = Math.min.apply(null, targets.map(el => el.y));
+  else if(mode === 'bottom') ref = Math.max.apply(null, targets.map(el => el.y + el.height));
+  else if(mode === 'vcenter'){
+    const minY = Math.min.apply(null, targets.map(el => el.y));
+    const maxY = Math.max.apply(null, targets.map(el => el.y + el.height));
+    ref = (minY + maxY) / 2;
+  } else return data;
+
+  const elements = data.elements.map(el => {
+    if(!idSet.has(el.id)) return el;
+    const next = Object.assign({}, el);
+    if(mode === 'left') next.x = ref;
+    else if(mode === 'right') next.x = ref - el.width;
+    else if(mode === 'hcenter') next.x = ref - el.width / 2;
+    else if(mode === 'top') next.y = ref;
+    else if(mode === 'bottom') next.y = ref - el.height;
+    else if(mode === 'vcenter') next.y = ref - el.height / 2;
+    return next;
+  });
+  return { width:data.width, height:data.height, elements };
+}
+// Spaces elements evenly by CENTER-to-center distance between the
+// first and last (by position along the chosen axis) - the two
+// endpoints stay put, everything between them redistributes to equal
+// spacing. Needs at least 3 elements; with only 2, "distribute" has no
+// meaningful effect beyond what align already does.
+function distributeElements(data, ids, axis){
+  const idSet = new Set(ids);
+  const targets = data.elements.filter(el => idSet.has(el.id));
+  if(targets.length < 3) return data;
+  const sorted = targets.slice().sort((a, b) => axis === 'horizontal' ? (a.x - b.x) : (a.y - b.y));
+  const centerOf = (el) => axis === 'horizontal' ? (el.x + el.width / 2) : (el.y + el.height / 2);
+  const firstCenter = centerOf(sorted[0]);
+  const lastCenter = centerOf(sorted[sorted.length - 1]);
+  const step = (lastCenter - firstCenter) / (sorted.length - 1);
+  const newCenters = {};
+  sorted.forEach((el, i) => {
+    if(i === 0 || i === sorted.length - 1) return;
+    newCenters[el.id] = firstCenter + step * i;
+  });
+  const elements = data.elements.map(el => {
+    if(!(el.id in newCenters)) return el;
+    const next = Object.assign({}, el);
+    if(axis === 'horizontal') next.x = newCenters[el.id] - el.width / 2;
+    else next.y = newCenters[el.id] - el.height / 2;
+    return next;
+  });
+  return { width:data.width, height:data.height, elements };
+}
+function nudgeElements(data, ids, dx, dy){
+  const idSet = (ids instanceof Set) ? ids : new Set(ids);
+  const elements = data.elements.map(el => {
+    if(!idSet.has(el.id)) return el;
+    return Object.assign({}, el, { x: Math.max(0, el.x + dx), y: Math.max(0, el.y + dy) });
+  });
+  return { width:data.width, height:data.height, elements };
+}
+
+/* ---- Snap-to-alignment guides while dragging. Pure detection math,
+   kept separate from the DOM drag choreography (which needs real
+   layout/coordinates jsdom can't meaningfully simulate) so the actual
+   snapping LOGIC is fully testable on its own. Checks the dragged
+   box's edges/center against every other element's edges/center on
+   each axis independently, snapping to whichever candidate is closest
+   within `threshold` px. ---- */
+function computeSnap(dragged, others, threshold){
+  threshold = (typeof threshold === 'number') ? threshold : 5;
+  const dPoints = {
+    left: dragged.x, right: dragged.x + dragged.width, hcenter: dragged.x + dragged.width / 2,
+    top: dragged.y, bottom: dragged.y + dragged.height, vcenter: dragged.y + dragged.height / 2
+  };
+  let bestX = null, bestY = null;
+  others.forEach(other => {
+    const oPoints = {
+      left: other.x, right: other.x + other.width, hcenter: other.x + other.width / 2,
+      top: other.y, bottom: other.y + other.height, vcenter: other.y + other.height / 2
+    };
+    ['left', 'right', 'hcenter'].forEach(dKey => {
+      ['left', 'right', 'hcenter'].forEach(oKey => {
+        const diff = oPoints[oKey] - dPoints[dKey];
+        if(Math.abs(diff) <= threshold && (bestX === null || Math.abs(diff) < Math.abs(bestX.diff))){
+          bestX = { diff, guideAt: oPoints[oKey] };
+        }
+      });
+    });
+    ['top', 'bottom', 'vcenter'].forEach(dKey => {
+      ['top', 'bottom', 'vcenter'].forEach(oKey => {
+        const diff = oPoints[oKey] - dPoints[dKey];
+        if(Math.abs(diff) <= threshold && (bestY === null || Math.abs(diff) < Math.abs(bestY.diff))){
+          bestY = { diff, guideAt: oPoints[oKey] };
+        }
+      });
+    });
+  });
+  return {
+    x: bestX ? dragged.x + bestX.diff : dragged.x,
+    y: bestY ? dragged.y + bestY.diff : dragged.y,
+    guideX: bestX ? bestX.guideAt : null,
+    guideY: bestY ? bestY.guideAt : null
+  };
+}
+
 /* ---- Undo/redo: canvas-scoped, reset whenever a different column or
    document is loaded (see resetCanvasUndoHistory(), called from
    loadActiveColumnIntoEditorUI() in index.html's script). ---- */
@@ -340,6 +455,24 @@ function deleteSelectedCanvasElements(){
   renderCanvasEditor(data);
 }
 
+function showCanvasGuides(guideX, guideY){
+  const surface = document.getElementById('canvasEditorSurface');
+  let vLine = document.getElementById('canvasGuideV');
+  let hLine = document.getElementById('canvasGuideH');
+  if(guideX !== null){
+    if(!vLine){ vLine = document.createElement('div'); vLine.id = 'canvasGuideV'; vLine.className = 'canvas-guide canvas-guide-v'; surface.appendChild(vLine); }
+    vLine.style.left = guideX + 'px';
+  } else if(vLine){ vLine.remove(); }
+  if(guideY !== null){
+    if(!hLine){ hLine = document.createElement('div'); hLine.id = 'canvasGuideH'; hLine.className = 'canvas-guide canvas-guide-h'; surface.appendChild(hLine); }
+    hLine.style.top = guideY + 'px';
+  } else if(hLine){ hLine.remove(); }
+}
+function hideCanvasGuides(){
+  const v = document.getElementById('canvasGuideV'); if(v) v.remove();
+  const h = document.getElementById('canvasGuideH'); if(h) h.remove();
+}
+
 function makeCanvasElDraggable(div, elId){
   div.addEventListener('mousedown', (e) => {
     if(e.target.closest('.canvas-resize-handle') || e.target.closest('.canvas-el-delete') || e.target.tagName === 'TEXTAREA') return;
@@ -348,16 +481,26 @@ function makeCanvasElDraggable(div, elId){
     const startX = e.clientX, startY = e.clientY;
     const origLeft = parseFloat(div.style.left) || 0;
     const origTop = parseFloat(div.style.top) || 0;
+    const width = parseFloat(div.style.width) || 100;
+    const height = parseFloat(div.style.height) || 60;
+    // Other elements' CURRENT positions, captured once at drag start
+    // (not re-fetched every mousemove) - they aren't moving during a
+    // single-element drag, so there's no need to re-read them.
+    const others = getCurrentCanvasData().elements.filter(el => el.id !== elId);
     let moved = false;
     function onMove(ev){
       const dx = ev.clientX - startX, dy = ev.clientY - startY;
       if(Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
-      div.style.left = Math.max(0, origLeft + dx) + 'px';
-      div.style.top = Math.max(0, origTop + dy) + 'px';
+      const rawX = Math.max(0, origLeft + dx), rawY = Math.max(0, origTop + dy);
+      const snapped = computeSnap({ x:rawX, y:rawY, width, height }, others, 5);
+      div.style.left = snapped.x + 'px';
+      div.style.top = snapped.y + 'px';
+      showCanvasGuides(snapped.guideX, snapped.guideY);
     }
     function onUp(upEvt){
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      hideCanvasGuides();
       if(moved){
         const data = getCurrentCanvasData();
         const target = data.elements.find(x => x.id === elId);
@@ -377,17 +520,42 @@ function makeCanvasElDraggable(div, elId){
     document.addEventListener('mouseup', onUp);
   });
 }
-function makeCanvasElResizable(handle, div, elId){
+
+// 8-direction resize. `edges` says which sides this particular handle
+// controls (n/s/e/w, corners combine two). Holding Shift while resizing
+// an IMAGE locks its aspect ratio - text boxes don't get this (their
+// content reflows regardless of box shape, so there's no "correct"
+// ratio to preserve the way there is for a photo).
+function makeCanvasElResizable(handle, div, elId, edges){
   handle.addEventListener('mousedown', (e) => {
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX, startY = e.clientY;
+    const origLeft = parseFloat(div.style.left) || 0;
+    const origTop = parseFloat(div.style.top) || 0;
     const origWidth = parseFloat(div.style.width) || 100;
     const origHeight = parseFloat(div.style.height) || 60;
+    const aspectRatio = origWidth / (origHeight || 1);
+    const isImage = div.classList.contains('canvas-el-image');
     function onMove(ev){
       const dx = ev.clientX - startX, dy = ev.clientY - startY;
-      div.style.width = Math.max(20, origWidth + dx) + 'px';
-      div.style.height = Math.max(20, origHeight + dy) + 'px';
+      let newLeft = origLeft, newTop = origTop, newWidth = origWidth, newHeight = origHeight;
+      if(edges.e) newWidth = Math.max(20, origWidth + dx);
+      if(edges.w){ newWidth = Math.max(20, origWidth - dx); newLeft = origLeft + (origWidth - newWidth); }
+      if(edges.s) newHeight = Math.max(20, origHeight + dy);
+      if(edges.n){ newHeight = Math.max(20, origHeight - dy); newTop = origTop + (origHeight - newHeight); }
+
+      if(ev.shiftKey && isImage){
+        if(edges.e || edges.w){
+          newHeight = Math.max(20, newWidth / aspectRatio);
+          if(edges.n) newTop = origTop + (origHeight - newHeight);
+        } else if(edges.n || edges.s){
+          newWidth = Math.max(20, newHeight * aspectRatio);
+          if(edges.w) newLeft = origLeft + (origWidth - newWidth);
+        }
+      }
+      div.style.left = newLeft + 'px'; div.style.top = newTop + 'px';
+      div.style.width = newWidth + 'px'; div.style.height = newHeight + 'px';
     }
     function onUp(){
       document.removeEventListener('mousemove', onMove);
@@ -395,6 +563,8 @@ function makeCanvasElResizable(handle, div, elId){
       const data = getCurrentCanvasData();
       const target = data.elements.find(x => x.id === elId);
       if(target){
+        target.x = parseFloat(div.style.left) || 0;
+        target.y = parseFloat(div.style.top) || 0;
         target.width = parseFloat(div.style.width) || 100;
         target.height = parseFloat(div.style.height) || 60;
       }
@@ -460,12 +630,19 @@ function buildCanvasElementDom(el){
   });
   div.appendChild(del);
 
-  const handle = document.createElement('div');
-  handle.className = 'canvas-resize-handle';
-  div.appendChild(handle);
+  const handleConfigs = [
+    { cls:'nw', edges:{n:true, w:true} }, { cls:'n', edges:{n:true} }, { cls:'ne', edges:{n:true, e:true} },
+    { cls:'w',  edges:{w:true} },                                       { cls:'e',  edges:{e:true} },
+    { cls:'sw', edges:{s:true, w:true} }, { cls:'s', edges:{s:true} }, { cls:'se', edges:{s:true, e:true} }
+  ];
+  handleConfigs.forEach(cfg => {
+    const h = document.createElement('div');
+    h.className = 'canvas-resize-handle canvas-resize-handle-' + cfg.cls;
+    div.appendChild(h);
+    makeCanvasElResizable(h, div, el.id, cfg.edges);
+  });
 
   makeCanvasElDraggable(div, el.id);
-  makeCanvasElResizable(handle, div, el.id);
   return div;
 }
 
@@ -633,6 +810,32 @@ document.getElementById('canvasEditorSurface').addEventListener('mousedown', (e)
   document.addEventListener('mouseup', onUp);
 });
 
+// ---- Toolbar: align/distribute, acting on the current selection.
+function applyCanvasAlign(mode){
+  if(selectedCanvasElementIds.size < 2) return;
+  const data = alignElements(getCurrentCanvasData(), Array.from(selectedCanvasElementIds), mode);
+  saveCanvasData(data);
+  renderCanvasEditor(data);
+}
+document.getElementById('canvasAlignLeftBtn').addEventListener('click', () => applyCanvasAlign('left'));
+document.getElementById('canvasAlignHCenterBtn').addEventListener('click', () => applyCanvasAlign('hcenter'));
+document.getElementById('canvasAlignRightBtn').addEventListener('click', () => applyCanvasAlign('right'));
+document.getElementById('canvasAlignTopBtn').addEventListener('click', () => applyCanvasAlign('top'));
+document.getElementById('canvasAlignVCenterBtn').addEventListener('click', () => applyCanvasAlign('vcenter'));
+document.getElementById('canvasAlignBottomBtn').addEventListener('click', () => applyCanvasAlign('bottom'));
+document.getElementById('canvasDistributeHBtn').addEventListener('click', () => {
+  if(selectedCanvasElementIds.size < 3) return;
+  const data = distributeElements(getCurrentCanvasData(), Array.from(selectedCanvasElementIds), 'horizontal');
+  saveCanvasData(data);
+  renderCanvasEditor(data);
+});
+document.getElementById('canvasDistributeVBtn').addEventListener('click', () => {
+  if(selectedCanvasElementIds.size < 3) return;
+  const data = distributeElements(getCurrentCanvasData(), Array.from(selectedCanvasElementIds), 'vertical');
+  saveCanvasData(data);
+  renderCanvasEditor(data);
+});
+
 // ---- Toolbar: duplicate, layer ordering, undo/redo.
 document.getElementById('canvasDuplicateBtn').addEventListener('click', () => {
   if(selectedCanvasElementIds.size === 0) return;
@@ -673,6 +876,7 @@ document.getElementById('canvasRedoBtn').addEventListener('click', canvasRedo);
 // actually being a canvas, and on focus NOT being inside a text box's
 // own textarea - typing inside a text box has its own native undo/
 // delete-character behavior, which this must not intercept or override.
+const CANVAS_ARROW_KEYS = { ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1] };
 document.addEventListener('keydown', (e) => {
   if(getColumnType(columns[activeCol]) !== 'canvas') return;
   const activeIsCanvasTextarea = document.activeElement
@@ -683,6 +887,20 @@ document.addEventListener('keydown', (e) => {
   if((e.key === 'Delete' || e.key === 'Backspace') && selectedCanvasElementIds.size > 0){
     e.preventDefault();
     deleteSelectedCanvasElements();
+    return;
+  }
+  if(CANVAS_ARROW_KEYS[e.key] && selectedCanvasElementIds.size > 0){
+    e.preventDefault();
+    const [dx, dy] = CANVAS_ARROW_KEYS[e.key];
+    const amount = e.shiftKey ? 10 : 1;
+    const data = nudgeElements(getCurrentCanvasData(), selectedCanvasElementIds, dx * amount, dy * amount);
+    // e.repeat is true for OS-auto-repeated keydowns from a held key -
+    // only the FIRST press of a nudge gesture gets its own undo
+    // checkpoint, so holding an arrow key doesn't flood the undo stack
+    // with one entry per repeat tick (same reasoning as why typing
+    // inside a text box doesn't push a snapshot per keystroke).
+    if(e.repeat) saveCanvasDataQuiet(data); else saveCanvasData(data);
+    renderCanvasEditor(data);
     return;
   }
   const mod = e.ctrlKey || e.metaKey;
@@ -699,4 +917,3 @@ document.addEventListener('keydown', (e) => {
     canvasRedo();
   }
 });
-

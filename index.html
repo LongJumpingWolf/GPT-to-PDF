@@ -337,16 +337,28 @@
   .canvas-page-editing .canvas-el:hover .canvas-el-delete,
   .canvas-page-editing .canvas-el.selected .canvas-el-delete{ display:flex; }
   .canvas-resize-handle{
-    position:absolute; right:-4px; bottom:-4px; width:12px; height:12px; border-radius:2px;
-    background:var(--accent); cursor:nwse-resize; display:none;
+    position:absolute; width:9px; height:9px; border-radius:2px;
+    background:var(--accent); display:none; z-index:20;
   }
   .canvas-page-editing .canvas-el:hover .canvas-resize-handle,
   .canvas-page-editing .canvas-el.selected .canvas-resize-handle{ display:block; }
+  /* 8 handles: 4 corners + 4 edge midpoints, each with the matching resize cursor. */
+  .canvas-resize-handle-nw{ left:-5px; top:-5px; cursor:nwse-resize; }
+  .canvas-resize-handle-n { left:50%; top:-5px; margin-left:-4.5px; cursor:ns-resize; }
+  .canvas-resize-handle-ne{ right:-5px; top:-5px; cursor:nesw-resize; }
+  .canvas-resize-handle-w { left:-5px; top:50%; margin-top:-4.5px; cursor:ew-resize; }
+  .canvas-resize-handle-e { right:-5px; top:50%; margin-top:-4.5px; cursor:ew-resize; }
+  .canvas-resize-handle-sw{ left:-5px; bottom:-5px; cursor:nesw-resize; }
+  .canvas-resize-handle-s { left:50%; bottom:-5px; margin-left:-4.5px; cursor:ns-resize; }
+  .canvas-resize-handle-se{ right:-5px; bottom:-5px; cursor:nwse-resize; }
   .canvas-select-box{
     position:absolute; border:1px dashed var(--accent); background:rgba(122,59,46,0.08);
     pointer-events:none; z-index:50;
   }
   .canvas-toolbar-btn-active{ background:var(--accent-soft); border-color:var(--accent); }
+  .canvas-guide{ position:absolute; background:#ff3b6b; pointer-events:none; z-index:40; }
+  .canvas-guide-v{ top:0; bottom:0; width:1px; }
+  .canvas-guide-h{ left:0; right:0; height:1px; }
 
   /* ===================== Spreadsheet ===================== */
   .sheet-page{ border-collapse:collapse; margin:0; }
@@ -619,6 +631,15 @@
             <label class="color-add-swatch" title="Pick any color">+<input type="color" id="canvasHighlightCustom" value="#fff176"></label>
           </div>
         </span>
+        <span class="toolbar-sep"></span>
+        <button type="button" class="fmt-btn" id="canvasAlignLeftBtn" title="Align left">&#8676;</button>
+        <button type="button" class="fmt-btn" id="canvasAlignHCenterBtn" title="Align center (horizontal)">&#8596;</button>
+        <button type="button" class="fmt-btn" id="canvasAlignRightBtn" title="Align right">&#8677;</button>
+        <button type="button" class="fmt-btn" id="canvasAlignTopBtn" title="Align top">&#8679;</button>
+        <button type="button" class="fmt-btn" id="canvasAlignVCenterBtn" title="Align middle (vertical)">&#8597;</button>
+        <button type="button" class="fmt-btn" id="canvasAlignBottomBtn" title="Align bottom">&#8681;</button>
+        <button type="button" class="fmt-btn" id="canvasDistributeHBtn" title="Distribute horizontally (3+ selected)">&#8644;</button>
+        <button type="button" class="fmt-btn" id="canvasDistributeVBtn" title="Distribute vertically (3+ selected)">&#8645;</button>
         <span class="toolbar-sep"></span>
         <button type="button" class="fmt-btn" id="canvasDuplicateBtn" title="Duplicate selection (Ctrl+D)">Duplicate</button>
         <button type="button" class="fmt-btn" id="canvasBringFrontBtn" title="Bring to front">Front</button>
