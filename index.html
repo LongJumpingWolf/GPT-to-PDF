@@ -342,6 +342,11 @@
   }
   .canvas-page-editing .canvas-el:hover .canvas-resize-handle,
   .canvas-page-editing .canvas-el.selected .canvas-resize-handle{ display:block; }
+  .canvas-select-box{
+    position:absolute; border:1px dashed var(--accent); background:rgba(122,59,46,0.08);
+    pointer-events:none; z-index:50;
+  }
+  .canvas-toolbar-btn-active{ background:var(--accent-soft); border-color:var(--accent); }
 
   /* ===================== Spreadsheet ===================== */
   .sheet-page{ border-collapse:collapse; margin:0; }
@@ -559,6 +564,15 @@
         <button type="button" class="fmt-btn" id="canvasSpaceRightBtn" title="Add space on the right">&rarr;</button>
         <button type="button" class="fmt-btn" id="canvasSpaceTopBtn" title="Add space on top">&uarr;</button>
         <button type="button" class="fmt-btn" id="canvasSpaceBottomBtn" title="Add space on the bottom">&darr;</button>
+        <span class="toolbar-sep"></span>
+        <button type="button" class="fmt-btn" id="canvasDuplicateBtn" title="Duplicate selection (Ctrl+D)">Duplicate</button>
+        <button type="button" class="fmt-btn" id="canvasBringFrontBtn" title="Bring to front">Front</button>
+        <button type="button" class="fmt-btn" id="canvasForwardBtn" title="Bring forward">Fwd</button>
+        <button type="button" class="fmt-btn" id="canvasBackwardBtn" title="Send backward">Bwd</button>
+        <button type="button" class="fmt-btn" id="canvasSendBackBtn" title="Send to back">Back</button>
+        <span class="toolbar-sep"></span>
+        <button type="button" class="fmt-btn" id="canvasUndoBtn" title="Undo (Ctrl+Z)">Undo</button>
+        <button type="button" class="fmt-btn" id="canvasRedoBtn" title="Redo (Ctrl+Shift+Z)">Redo</button>
       </div>
       <div id="canvasEditorWrap" style="display:none;">
         <div id="canvasEditorSurface" class="canvas-page canvas-page-editing"></div>
@@ -1173,6 +1187,8 @@ function loadActiveColumnIntoEditorUI(){
   if(type === 'text'){
     editor.value = raw;
   } else if(type === 'canvas'){
+    resetCanvasUndoHistory(); // undo history is scoped to "this canvas, right now" - a different column/document's history must not leak in
+    selectedCanvasElementIds = new Set();
     renderCanvasEditor(parseCanvasData(raw));
   } else if(type === 'sheet'){
     renderSheetEditor(parseSheetData(raw));
