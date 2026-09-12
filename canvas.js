@@ -58,6 +58,54 @@ function addCanvasSpace(data, direction, amount){
   return next;
 }
 
+// ---- Text box formatting: bold, italic, font size, text color,
+// highlight. Applies to a whole box's text uniformly (not per-character
+// ranges within it - that would need a much heavier rich-text editing
+// model for comparatively little value here). Stored directly on the
+// element object itself (el.format), not a separate sparse map like
+// sheet cell formatting - so add/delete/duplicate/reorder/layer
+// operations, which already copy or filter whole element objects,
+// automatically carry formatting along with zero extra code.
+function pruneCanvasTextFormat(fmt){
+  if(!fmt) return null;
+  const hasAny = fmt.bold || fmt.italic || fmt.fontSize || fmt.color || fmt.highlight;
+  return hasAny ? fmt : null;
+}
+// Applies one formatting property to every TEXT element among `ids`
+// (image elements are silently skipped, not an error - selecting a mix
+// of text and image elements and clicking Bold should format the text
+// ones, not fail entirely because an image was included).
+function applyCanvasTextFormat(data, ids, prop, value){
+  const idSet = new Set(ids);
+  const elements = data.elements.map(el => {
+    if(el.type !== 'text' || !idSet.has(el.id)) return el;
+    const updated = Object.assign({}, el.format, { [prop]: value });
+    const pruned = pruneCanvasTextFormat(updated);
+    const next = Object.assign({}, el);
+    if(pruned) next.format = pruned; else delete next.format;
+    return next;
+  });
+  return { width:data.width, height:data.height, elements };
+}
+// Toggle semantics matching the sheet cell toggle: if EVERY targeted
+// text element already has the property on, turn it off for all of
+// them; otherwise turn it on for all of them.
+function toggleCanvasTextFormat(data, ids, prop){
+  const textEls = data.elements.filter(el => el.type === 'text' && ids.includes(el.id));
+  const allOn = textEls.length > 0 && textEls.every(el => el.format && el.format[prop]);
+  return applyCanvasTextFormat(data, ids, prop, !allOn);
+}
+function canvasTextStyleAttr(format){
+  if(!format) return '';
+  const styles = [];
+  if(format.bold) styles.push('font-weight:700');
+  if(format.italic) styles.push('font-style:italic');
+  if(format.fontSize) styles.push('font-size:' + format.fontSize + 'px');
+  if(format.color) styles.push('color:' + format.color);
+  if(format.highlight) styles.push('background:' + format.highlight);
+  return styles.join(';');
+}
+
 // ---- Static (non-interactive) rendering for the preview pane / PDF
 // export - reuses resolveImages() (via the img://<id> src convention)
 // exactly like markdown images do, so canvas images get the same
@@ -66,7 +114,9 @@ function renderCanvasHTML(data){
   const elementsHtml = data.elements.map(el => {
     const style = `left:${el.x}px;top:${el.y}px;width:${el.width}px;height:${el.height}px;`;
     if(el.type === 'text'){
-      return `<div class="canvas-el canvas-el-text" style="${style}">${escapeHtml(el.text || '')}</div>`;
+      const fmtStyle = canvasTextStyleAttr(el.format);
+      const combined = style + (fmtStyle ? fmtStyle : '');
+      return `<div class="canvas-el canvas-el-text" style="${combined}">${escapeHtml(el.text || '')}</div>`;
     }
     if(el.type === 'image'){
       return `<div class="canvas-el canvas-el-image" style="${style}"><img src="${escapeHtml(el.src || '')}" alt=""></div>`;
@@ -235,10 +285,36 @@ function canvasRedo(){
 
 /* ---- Selection state and highlighting. ---- */
 let selectedCanvasElementIds = new Set();
+function selectedTextElementIds(data){
+  return data.elements.filter(el => el.type === 'text' && selectedCanvasElementIds.has(el.id)).map(el => el.id);
+}
+// Reflects the (first) selected text element's formatting on the
+// toolbar's Bold/Italic/font-size controls - a nice-to-have sync, not
+// load-bearing for correctness (applying a format always targets the
+// live selection regardless of what the toolbar currently displays).
+function updateCanvasTextToolbarState(){
+  const boldBtn = document.getElementById('canvasTextBoldBtn');
+  const italicBtn = document.getElementById('canvasTextItalicBtn');
+  const sizeSelect = document.getElementById('canvasFontSizeSelect');
+  if(!boldBtn) return; // toolbar not in the DOM yet during very early init
+  const data = getCurrentCanvasData();
+  const ids = selectedTextElementIds(data);
+  if(ids.length === 0){
+    boldBtn.classList.remove('canvas-toolbar-btn-active');
+    italicBtn.classList.remove('canvas-toolbar-btn-active');
+    return;
+  }
+  const first = data.elements.find(el => el.id === ids[0]);
+  const fmt = (first && first.format) || {};
+  boldBtn.classList.toggle('canvas-toolbar-btn-active', !!fmt.bold);
+  italicBtn.classList.toggle('canvas-toolbar-btn-active', !!fmt.italic);
+  if(fmt.fontSize) sizeSelect.value = String(fmt.fontSize);
+}
 function refreshCanvasSelectionHighlight(){
   document.querySelectorAll('#canvasEditorSurface .canvas-el').forEach(el => {
     el.classList.toggle('selected', selectedCanvasElementIds.has(el.dataset.id));
   });
+  updateCanvasTextToolbarState();
 }
 function selectCanvasElement(id, additive){
   if(!additive){
@@ -342,6 +418,13 @@ function buildCanvasElementDom(el){
   if(el.type === 'text'){
     const ta = document.createElement('textarea');
     ta.value = el.text || '';
+    if(el.format){
+      if(el.format.bold) ta.style.fontWeight = '700';
+      if(el.format.italic) ta.style.fontStyle = 'italic';
+      if(el.format.fontSize) ta.style.fontSize = el.format.fontSize + 'px';
+      if(el.format.color) ta.style.color = el.format.color;
+      if(el.format.highlight) ta.style.background = el.format.highlight;
+    }
     ta.addEventListener('mousedown', (e) => {
       e.stopPropagation();
       selectCanvasElement(el.id, e.shiftKey);
@@ -393,6 +476,7 @@ function renderCanvasEditor(data){
   surface.innerHTML = '';
   data.elements.forEach(el => surface.appendChild(buildCanvasElementDom(el)));
   updateCanvasUndoRedoButtons();
+  updateCanvasTextToolbarState();
 }
 
 function addCanvasImageElement(data, id, width, height){
@@ -484,6 +568,35 @@ document.getElementById('canvasSpaceLeftBtn').addEventListener('click', () => ap
 document.getElementById('canvasSpaceRightBtn').addEventListener('click', () => applyCanvasSpaceDirection('right'));
 document.getElementById('canvasSpaceTopBtn').addEventListener('click', () => applyCanvasSpaceDirection('top'));
 document.getElementById('canvasSpaceBottomBtn').addEventListener('click', () => applyCanvasSpaceDirection('bottom'));
+
+// ---- Text box formatting toolbar: bold/italic/font-size act on every
+// currently-selected TEXT element (image elements in the selection are
+// silently skipped, not an error).
+document.getElementById('canvasTextBoldBtn').addEventListener('click', () => {
+  const data = getCurrentCanvasData();
+  const ids = selectedTextElementIds(data);
+  if(ids.length === 0) return;
+  const next = toggleCanvasTextFormat(data, ids, 'bold');
+  saveCanvasData(next);
+  renderCanvasEditor(next);
+});
+document.getElementById('canvasTextItalicBtn').addEventListener('click', () => {
+  const data = getCurrentCanvasData();
+  const ids = selectedTextElementIds(data);
+  if(ids.length === 0) return;
+  const next = toggleCanvasTextFormat(data, ids, 'italic');
+  saveCanvasData(next);
+  renderCanvasEditor(next);
+});
+document.getElementById('canvasFontSizeSelect').addEventListener('change', () => {
+  const data = getCurrentCanvasData();
+  const ids = selectedTextElementIds(data);
+  if(ids.length === 0) return;
+  const size = parseInt(document.getElementById('canvasFontSizeSelect').value, 10);
+  const next = applyCanvasTextFormat(data, ids, 'fontSize', size);
+  saveCanvasData(next);
+  renderCanvasEditor(next);
+});
 
 // ---- Multi-select rubber-band: mousedown on empty canvas surface (not
 // on any element) starts a drag rectangle; elementsIntersectingRect()

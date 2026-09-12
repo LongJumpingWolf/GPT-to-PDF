@@ -581,6 +581,45 @@
         <button type="button" class="fmt-btn" id="canvasSpaceTopBtn" title="Add space on top">&uarr;</button>
         <button type="button" class="fmt-btn" id="canvasSpaceBottomBtn" title="Add space on the bottom">&darr;</button>
         <span class="toolbar-sep"></span>
+        <button type="button" class="fmt-btn" id="canvasTextBoldBtn" title="Bold selected text box(es)"><b>B</b></button>
+        <button type="button" class="fmt-btn" id="canvasTextItalicBtn" title="Italic selected text box(es)"><i>I</i></button>
+        <select id="canvasFontSizeSelect" title="Font size" style="padding:6px 4px;border:1px solid var(--rule);border-radius:4px;font-size:12px;">
+          <option value="10">10</option>
+          <option value="12">12</option>
+          <option value="14" selected>14</option>
+          <option value="16">16</option>
+          <option value="18">18</option>
+          <option value="24">24</option>
+          <option value="32">32</option>
+          <option value="48">48</option>
+        </select>
+        <span class="color-tool" id="canvasTextColorTool">
+          <button type="button" class="fmt-btn color-trigger" id="canvasTextColorBtn" title="Text color">
+            <span class="color-icon">A</span><span class="tool-swatch-bar" id="canvasTextColorSwatch"></span>
+          </button>
+          <div class="color-panel" id="canvasTextColorPanel">
+            <div class="color-section-label">Standard</div>
+            <div class="color-grid" id="canvasTextColorStandard"></div>
+            <div class="color-section-label" id="canvasTextColorRecentLabel" style="display:none">Recent</div>
+            <div class="color-grid" id="canvasTextColorRecent"></div>
+            <div class="color-section-label">Custom</div>
+            <label class="color-add-swatch" title="Pick any color">+<input type="color" id="canvasTextColorCustom" value="#1c2430"></label>
+          </div>
+        </span>
+        <span class="color-tool" id="canvasHighlightTool">
+          <button type="button" class="fmt-btn color-trigger" id="canvasHighlightBtn" title="Highlight selected text box(es)">
+            <span class="color-icon">&#9635;</span><span class="tool-swatch-bar" id="canvasHighlightSwatch"></span>
+          </button>
+          <div class="color-panel" id="canvasHighlightPanel">
+            <div class="color-section-label">Standard</div>
+            <div class="color-grid" id="canvasHighlightStandard"></div>
+            <div class="color-section-label" id="canvasHighlightRecentLabel" style="display:none">Recent</div>
+            <div class="color-grid" id="canvasHighlightRecent"></div>
+            <div class="color-section-label">Custom</div>
+            <label class="color-add-swatch" title="Pick any color">+<input type="color" id="canvasHighlightCustom" value="#fff176"></label>
+          </div>
+        </span>
+        <span class="toolbar-sep"></span>
         <button type="button" class="fmt-btn" id="canvasDuplicateBtn" title="Duplicate selection (Ctrl+D)">Duplicate</button>
         <button type="button" class="fmt-btn" id="canvasBringFrontBtn" title="Bring to front">Front</button>
         <button type="button" class="fmt-btn" id="canvasForwardBtn" title="Bring forward">Fwd</button>
@@ -1538,6 +1577,40 @@ setupColorTool({
 });
 updateToolSwatch('sheetTextColorSwatch', lastTextColor || TEXT_COLORS[0]);
 updateToolSwatch('sheetHighlightSwatch', lastHighlightColor || HIGHLIGHT_COLORS[0]);
+
+// Canvas text-box color / highlight - same popover, same shared history.
+function applyCanvasTextColorTool(hex){
+  const data = getCurrentCanvasData();
+  const ids = selectedTextElementIds(data);
+  if(ids.length === 0) return;
+  const next = applyCanvasTextFormat(data, ids, 'color', hex);
+  saveCanvasData(next);
+  renderCanvasEditor(next);
+  updateToolSwatch('canvasTextColorSwatch', hex);
+}
+function applyCanvasHighlightColorTool(hex){
+  const data = getCurrentCanvasData();
+  const ids = selectedTextElementIds(data);
+  if(ids.length === 0) return;
+  const next = applyCanvasTextFormat(data, ids, 'highlight', hex);
+  saveCanvasData(next);
+  renderCanvasEditor(next);
+  updateToolSwatch('canvasHighlightSwatch', hex);
+}
+setupColorTool({
+  toolId:'canvasTextColorTool', btnId:'canvasTextColorBtn',
+  standardGridId:'canvasTextColorStandard', recentGridId:'canvasTextColorRecent', recentLabelId:'canvasTextColorRecentLabel',
+  customInputId:'canvasTextColorCustom', standardColors:TEXT_COLORS, historyKey:'mdEditorTextColorHistory',
+  onApply: applyCanvasTextColorTool
+});
+setupColorTool({
+  toolId:'canvasHighlightTool', btnId:'canvasHighlightBtn',
+  standardGridId:'canvasHighlightStandard', recentGridId:'canvasHighlightRecent', recentLabelId:'canvasHighlightRecentLabel',
+  customInputId:'canvasHighlightCustom', standardColors:HIGHLIGHT_COLORS, historyKey:'mdEditorHighlightColorHistory',
+  onApply: applyCanvasHighlightColorTool
+});
+updateToolSwatch('canvasTextColorSwatch', lastTextColor || TEXT_COLORS[0]);
+updateToolSwatch('canvasHighlightSwatch', lastHighlightColor || HIGHLIGHT_COLORS[0]);
 
 document.addEventListener('click', (e) => {
   document.querySelectorAll('.color-tool.open').forEach(tool => {
