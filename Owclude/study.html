@@ -25,6 +25,12 @@
   .pagenav input{ width:52px; text-align:center; }
   .occ-box{ box-sizing:border-box; }
   .occ-box:focus-visible{ outline:2px solid var(--accent); }
+  /* draw mode: crosshair so you always know you're placing a mask, and the
+     draft box can't be mistaken for an existing one. Existing boxes stop
+     intercepting pointers so you can freely draw a new mask that starts over
+     an existing one (overlapping masks are allowed). */
+  .occ-layer-add{ cursor:crosshair; }
+  .occ-layer-add .occ-box{ cursor:crosshair; pointer-events:none; }
   .kbd-hint{ font-size:11px; color:var(--muted); }
   .toggle-group{ display:flex; border:1px solid var(--border); }
   .toggle-group button{ border:none; border-right:1px solid var(--border); }
