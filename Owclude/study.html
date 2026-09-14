@@ -24,6 +24,8 @@
   }
   .pagenav input{ width:52px; text-align:center; }
   .occ-box{ box-sizing:border-box; }
+  .occ-box:focus-visible{ outline:2px solid var(--accent); }
+  .kbd-hint{ font-size:11px; color:var(--muted); }
   .toggle-group{ display:flex; border:1px solid var(--border); }
   .toggle-group button{ border:none; border-right:1px solid var(--border); }
   .toggle-group button:last-child{ border-right:none; }
@@ -76,14 +78,16 @@
           <button id="blanketSolidBtn" class="active">Solid</button>
           <button id="blanketTransparentBtn">Transparent</button>
         </div>
+        <button id="revealAllBtn" title="Reveal or hide every mask on this page (R)">Reveal all</button>
         <div class="spacer"></div>
         <span class="status mono" id="viewerStatus"></span>
       </div>
       <div class="viewer-scroll" id="viewerScroll"></div>
       <div class="pagenav">
-        <button id="prevPageBtn">&larr;</button>
+        <button id="prevPageBtn" title="Previous page">&larr;</button>
         <span class="mono">Page <input id="pageInput" type="number" min="1"> / <span id="pageCount">–</span></span>
-        <button id="nextPageBtn">&rarr;</button>
+        <button id="nextPageBtn" title="Next page">&rarr;</button>
+        <span class="kbd-hint">R reveal all · C got it · X missed · [ ] page</span>
       </div>
     </div>
 

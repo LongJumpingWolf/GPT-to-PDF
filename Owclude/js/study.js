@@ -55,8 +55,21 @@ async function init(){
   viewerStatus.textContent = '';
   pageInput.value = 1;
 
+  let lastReportedPage = 1;
   viewerScroll.addEventListener('scroll', () => {
-    requestAnimationFrame(() => { pageInput.value = renderer.getCurrentPage(); });
+    requestAnimationFrame(() => {
+      const cur = renderer.getCurrentPage();
+      pageInput.value = cur;
+      // reset the reveal-all toggle when the visible page changes
+      if(cur !== lastReportedPage){
+        lastReportedPage = cur;
+        if(allRevealed){
+          allRevealed = false;
+          revealAllBtn.textContent = 'Reveal all';
+          revealAllBtn.classList.remove('active');
+        }
+      }
+    });
   });
 }
 
@@ -93,6 +106,17 @@ function setBlanket(style){
   blanketSolidBtn.classList.toggle('active', style === 'solid');
   blanketTransparentBtn.classList.toggle('active', style === 'transparent');
 }
+
+// Reveal-all / hide-all toggle for the current page (the standard "toggle masks")
+const revealAllBtn = document.getElementById('revealAllBtn');
+let allRevealed = false;
+function toggleRevealAll(){
+  allRevealed = !allRevealed;
+  occlusionLayer.setAllRevealed(renderer.getCurrentPage(), allRevealed);
+  revealAllBtn.textContent = allRevealed ? 'Hide all' : 'Reveal all';
+  revealAllBtn.classList.toggle('active', allRevealed);
+}
+revealAllBtn.addEventListener('click', toggleRevealAll);
 
 /* ---- Page navigation ---- */
 
@@ -249,6 +273,22 @@ async function recordReview(result){
 }
 document.getElementById('markCorrectBtn').addEventListener('click', () => recordReview('correct'));
 document.getElementById('markIncorrectBtn').addEventListener('click', () => recordReview('incorrect'));
+
+/* ---- Keyboard shortcuts ---- */
+// Skip when typing in a field, so labels/tags entry isn't hijacked.
+document.addEventListener('keydown', (e) => {
+  const tag = (e.target.tagName || '').toLowerCase();
+  if(tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
+  if(e.metaKey || e.ctrlKey || e.altKey) return;
+
+  switch(e.key.toLowerCase()){
+    case 'r': e.preventDefault(); toggleRevealAll(); break;
+    case 'c': if(selectedOcclusion){ e.preventDefault(); recordReview('correct'); } break;
+    case 'x': if(selectedOcclusion){ e.preventDefault(); recordReview('incorrect'); } break;
+    case '[': e.preventDefault(); renderer.scrollToPage(Math.max(1, renderer.getCurrentPage() - 1)); break;
+    case ']': e.preventDefault(); renderer.scrollToPage(Math.min(renderer.getNumPages(), renderer.getCurrentPage() + 1)); break;
+  }
+});
 
 /* ---- Export ---- */
 

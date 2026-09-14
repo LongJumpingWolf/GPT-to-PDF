@@ -1,51 +1,53 @@
 /* =============================================================================
    renderer.js — virtualized, memory-capped PDF page rendering.
 
-   Core rules this file exists to enforce:
-     - Only pages actually visible (±1 buffer) ever have a rendered <canvas>.
-       Pages that scroll far off-screen get their canvas torn down entirely
-       (width/height set to 0, then removed) rather than just hidden, since a
-       hidden canvas still holds its full backing store in memory.
-     - Render scale is capped, not "full native resolution" — retina-sharp
-       (devicePixelRatio, capped at 2) is plenty; going higher just spends
-       memory nobody can see. Total canvas area is additionally capped, since
-       WebKit/Orion crashes well before Chrome does on large canvases.
-     - Page wrapper divs are sized from each page's intrinsic dimensions
-       *before* anything renders, so the scroll container never jumps as
-       pages mount/unmount.
+   Fixes over the first version:
+     1. No upfront getPage() loop. Measuring every page at load forced pdf.js
+        to parse the whole document before a single page rendered — the exact
+        thing that stalls big PDFs. Now we measure page 1 only, size every
+        wrapper from that aspect ratio as a provisional guess, and correct
+        each wrapper's real aspect ratio lazily the first time it mounts.
+     2. Render cancellation. Each page keeps its RenderTask; scrolling fast no
+        longer stacks overlapping render() calls on the same canvas (which
+        pdf.js rejects, blanking the page). Re-mounting cancels the in-flight
+        task first.
+     3. A short settle debounce so flick-scrolling doesn't rasterize pages
+        that were never actually looked at.
 
-   Exposes createPdfRenderer({ pdfDoc, container, onPageRendered }).
+   Core memory rules unchanged: only visible (+/-1) pages hold a canvas;
+   off-screen canvases are torn down (w/h = 0, removed); render scale and
+   total canvas area are capped for WebKit/Orion safety.
    ============================================================================= */
 
-const MAX_CANVAS_AREA = 16_000_000; // px^2 safety ceiling, most conservative on WebKit
+const MAX_CANVAS_AREA = 16000000; // px^2 ceiling, most conservative on WebKit
 const RENDER_SCALE_CAP = 2;
 const BUFFER_PAGES = 1;
+const MOUNT_SETTLE_MS = 90;
 
 async function createPdfRenderer({ pdfDoc, container, onPageRendered, onPageUnmounted }){
   const numPages = pdfDoc.numPages;
-  const pageWrappers = new Array(numPages + 1); // 1-indexed
-  const pageState = new Array(numPages + 1).fill('unmounted'); // unmounted | mounted | rendering
-  const baseViewports = new Array(numPages + 1);
+  const pageWrappers = new Array(numPages + 1);               // 1-indexed
+  const pageState = new Array(numPages + 1).fill('unmounted'); // unmounted | rendering | mounted
+  const renderTasks = new Array(numPages + 1).fill(null);
+  const measured = new Array(numPages + 1).fill(false);
+  const mountTimers = new Array(numPages + 1).fill(null);
 
-  // Measure every page's intrinsic size up front — cheap (no rasterization),
-  // needed so wrapper divs can be sized before their canvas exists.
-  for(let i = 1; i <= numPages; i++){
-    const page = await pdfDoc.getPage(i);
-    baseViewports[i] = page.getViewport({ scale: 1 });
-  }
+  // Measure page 1 only. Its aspect ratio is a good provisional size for all
+  // wrappers (textbook pages are near-uniform); each wrapper is corrected on
+  // its first real mount if it differs.
+  const firstPage = await pdfDoc.getPage(1);
+  const firstVp = firstPage.getViewport({ scale: 1 });
+  const provisionalRatio = firstVp.width + ' / ' + firstVp.height;
 
   container.innerHTML = '';
-  const containerWidth = () => container.clientWidth;
 
   for(let i = 1; i <= numPages; i++){
-    const vp = baseViewports[i];
-    const cssScale = containerWidth() / vp.width;
     const wrapper = document.createElement('div');
     wrapper.className = 'pdf-page-wrap';
     wrapper.dataset.page = String(i);
     wrapper.style.position = 'relative';
     wrapper.style.width = '100%';
-    wrapper.style.aspectRatio = `${vp.width} / ${vp.height}`;
+    wrapper.style.aspectRatio = provisionalRatio;
     wrapper.style.marginBottom = '10px';
     wrapper.style.background = 'var(--surface)';
     wrapper.style.border = '1px solid var(--border)';
@@ -57,14 +59,30 @@ async function createPdfRenderer({ pdfDoc, container, onPageRendered, onPageUnmo
     if(pageState[pageNumber] !== 'unmounted') return;
     pageState[pageNumber] = 'rendering';
     const wrapper = pageWrappers[pageNumber];
-    const page = await pdfDoc.getPage(pageNumber);
-    const baseVp = baseViewports[pageNumber];
 
-    const cssWidth = wrapper.clientWidth;
+    let page;
+    try {
+      page = await pdfDoc.getPage(pageNumber);
+    } catch {
+      pageState[pageNumber] = 'unmounted';
+      return;
+    }
+
+    // if this page got scheduled for unmount while getPage awaited, bail
+    if(pageState[pageNumber] !== 'rendering') return;
+
+    const baseVp = page.getViewport({ scale: 1 });
+
+    // correct the wrapper's aspect ratio the first time we truly measure it
+    if(!measured[pageNumber]){
+      wrapper.style.aspectRatio = baseVp.width + ' / ' + baseVp.height;
+      measured[pageNumber] = true;
+    }
+
+    const cssWidth = wrapper.clientWidth || firstVp.width;
     const dpr = Math.min(window.devicePixelRatio || 1, RENDER_SCALE_CAP);
     let scale = (cssWidth / baseVp.width) * dpr;
 
-    // clamp total canvas area for WebKit/Orion safety
     const projectedArea = (baseVp.width * scale) * (baseVp.height * scale);
     if(projectedArea > MAX_CANVAS_AREA){
       scale *= Math.sqrt(MAX_CANVAS_AREA / projectedArea);
@@ -80,8 +98,20 @@ async function createPdfRenderer({ pdfDoc, container, onPageRendered, onPageUnmo
     wrapper.appendChild(canvas);
 
     const ctx = canvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport }).promise;
+    const task = page.render({ canvasContext: ctx, viewport });
+    renderTasks[pageNumber] = task;
 
+    try {
+      await task.promise;
+    } catch(e){
+      // RenderingCancelledException is expected when we cancel mid-scroll
+      canvas.width = 0; canvas.height = 0; canvas.remove();
+      renderTasks[pageNumber] = null;
+      if(pageState[pageNumber] === 'rendering') pageState[pageNumber] = 'unmounted';
+      return;
+    }
+
+    renderTasks[pageNumber] = null;
     if(pageState[pageNumber] === 'rendering'){
       pageState[pageNumber] = 'mounted';
       if(onPageRendered) onPageRendered(pageNumber, wrapper, canvas);
@@ -89,16 +119,27 @@ async function createPdfRenderer({ pdfDoc, container, onPageRendered, onPageUnmo
   }
 
   function unmountPage(pageNumber){
-    if(pageState[pageNumber] !== 'mounted') return;
+    if(mountTimers[pageNumber]){ clearTimeout(mountTimers[pageNumber]); mountTimers[pageNumber] = null; }
+    // cancel an in-flight render so it doesn't resolve onto a torn-down canvas
+    if(renderTasks[pageNumber]){
+      try { renderTasks[pageNumber].cancel(); } catch {}
+      renderTasks[pageNumber] = null;
+    }
+    if(pageState[pageNumber] !== 'mounted' && pageState[pageNumber] !== 'rendering') return;
     const wrapper = pageWrappers[pageNumber];
     const canvas = wrapper.querySelector('canvas');
-    if(canvas){
-      canvas.width = 0;
-      canvas.height = 0;
-      canvas.remove();
-    }
+    if(canvas){ canvas.width = 0; canvas.height = 0; canvas.remove(); }
     pageState[pageNumber] = 'unmounted';
     if(onPageUnmounted) onPageUnmounted(pageNumber, wrapper);
+  }
+
+  function scheduleMount(pageNumber){
+    if(pageState[pageNumber] !== 'unmounted') return;
+    if(mountTimers[pageNumber]) return;
+    mountTimers[pageNumber] = setTimeout(() => {
+      mountTimers[pageNumber] = null;
+      mountPage(pageNumber);
+    }, MOUNT_SETTLE_MS);
   }
 
   let currentVisiblePage = 1;
@@ -107,11 +148,10 @@ async function createPdfRenderer({ pdfDoc, container, onPageRendered, onPageUnmo
       const pageNumber = Number(entry.target.dataset.page);
       if(entry.isIntersecting){
         for(let p = Math.max(1, pageNumber - BUFFER_PAGES); p <= Math.min(numPages, pageNumber + BUFFER_PAGES); p++){
-          mountPage(p);
+          scheduleMount(p);
         }
         if(entry.intersectionRatio > 0.5) currentVisiblePage = pageNumber;
       } else {
-        // only unmount once well clear of the buffer zone to avoid thrash
         const far = Math.abs(pageNumber - currentVisiblePage) > BUFFER_PAGES + 1;
         if(far) unmountPage(pageNumber);
       }
