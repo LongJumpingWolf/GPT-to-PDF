@@ -25,6 +25,19 @@
   .pagenav input{ width:52px; text-align:center; }
   .occ-box{ box-sizing:border-box; }
   .occ-box:focus-visible{ outline:2px solid var(--accent); }
+  .occ-bulb{
+    position:absolute; top:1px; right:1px; z-index:2;
+    font-size:11px; line-height:1; padding:1px 2px;
+    border:none; background:rgba(255,255,255,0.75); cursor:pointer;
+    border-radius:2px;
+  }
+  .occ-layer-add .occ-bulb{ display:none; }
+  .occ-hint{
+    font:500 13px 'IBM Plex Mono', monospace; color:#fff;
+    letter-spacing:1px; padding:0 4px; text-align:center;
+    max-width:100%; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+    pointer-events:none;
+  }
   /* draw mode: crosshair so you always know you're placing a mask, and the
      draft box can't be mistaken for an existing one. Existing boxes stop
      intercepting pointers so you can freely draw a new mask that starts over
@@ -93,7 +106,7 @@
         <button id="prevPageBtn" title="Previous page">&larr;</button>
         <span class="mono">Page <input id="pageInput" type="number" min="1"> / <span id="pageCount">–</span></span>
         <button id="nextPageBtn" title="Next page">&rarr;</button>
-        <span class="kbd-hint">R reveal all · C got it · X missed · [ ] page</span>
+        <span class="kbd-hint">Space reveal next · W hint · R all · C got it · X missed · [ ] page</span>
       </div>
     </div>
 
@@ -109,6 +122,10 @@
           <div class="field-row">
             <label>Tags (comma-separated)</label>
             <input id="occTagsInput" placeholder="renal, high-yield">
+          </div>
+          <div class="field-row">
+            <label>Hint (shown as dashes sized to the mask if left blank)</label>
+            <input id="occHintInput" placeholder="optional hint text">
           </div>
           <div id="occTierChip"></div>
           <div class="review-btns">

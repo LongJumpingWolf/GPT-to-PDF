@@ -118,6 +118,12 @@ function toggleRevealAll(){
 }
 revealAllBtn.addEventListener('click', toggleRevealAll);
 
+// Reveal the NEXT mask in creation order (Space / the active highlighted one)
+function revealNextMask(){
+  const occ = occlusionLayer.revealNext(renderer.getCurrentPage());
+  if(occ){ selectedOcclusion = occ; openDetailForm(occ, false); }
+}
+
 /* ---- Page navigation ---- */
 
 document.getElementById('prevPageBtn').addEventListener('click', () => {
@@ -139,6 +145,7 @@ const detailEmpty = document.getElementById('detailEmpty');
 const detailForm = document.getElementById('detailForm');
 const occLabelInput = document.getElementById('occLabelInput');
 const occTagsInput = document.getElementById('occTagsInput');
+const occHintInput = document.getElementById('occHintInput');
 const occTierChip = document.getElementById('occTierChip');
 const occOriginNote = document.getElementById('occOriginNote');
 const statsBody = document.getElementById('statsBody');
@@ -146,7 +153,7 @@ const statsBody = document.getElementById('statsBody');
 function handleOcclusionDrawn({ pageNumber, x, y, w, h }){
   draftOcclusion = {
     id: genId('occ'), pdfId, pageNumber, x, y, w, h,
-    label: '', tags: [], origin: 'personal', forkedFrom: null, createdAt: Date.now(),
+    label: '', tags: [], hint: '', origin: 'personal', forkedFrom: null, createdAt: Date.now(),
   };
   selectedOcclusion = null;
   openDetailForm(draftOcclusion, true);
@@ -163,6 +170,7 @@ async function openDetailForm(occ, isDraft){
   detailForm.classList.remove('hidden');
   occLabelInput.value = occ.label || '';
   occTagsInput.value = (occ.tags || []).join(', ');
+  occHintInput.value = occ.hint || '';
   occOriginNote.textContent = (!isDraft && occ.origin === 'imported')
     ? 'From a shared set — editing will save your own personal copy.'
     : '';
@@ -207,11 +215,13 @@ function clearDetailForm(){
 document.getElementById('saveOccBtn').addEventListener('click', async () => {
   const label = occLabelInput.value.trim();
   const tags = occTagsInput.value.split(',').map(t => t.trim()).filter(Boolean);
+  const hint = occHintInput.value.trim();
 
   if(draftOcclusion){
-    const occ = { ...draftOcclusion, label, tags };
+    const occ = { ...draftOcclusion, label, tags, hint };
     await putOcclusion(occ);
     allOcclusions.push(occ);
+    occlusionLayer.clearDraft();           // remove the red draft outline
     rebuildPageIndex();
     refreshCurrentPageOverlay(occ.pageNumber);
     draftOcclusion = null;
@@ -225,7 +235,7 @@ document.getElementById('saveOccBtn').addEventListener('click', async () => {
       // fork-on-edit: leave the imported original untouched, save a personal copy
       const forked = {
         ...selectedOcclusion,
-        id: genId('occ'), label, tags,
+        id: genId('occ'), label, tags, hint,
         origin: 'personal', forkedFrom: selectedOcclusion.id, createdAt: Date.now(),
       };
       await putOcclusion(forked);
@@ -235,7 +245,7 @@ document.getElementById('saveOccBtn').addEventListener('click', async () => {
       selectedOcclusion = forked;
       occOriginNote.textContent = 'Saved as your personal copy.';
     } else {
-      const updated = { ...selectedOcclusion, label, tags };
+      const updated = { ...selectedOcclusion, label, tags, hint };
       await putOcclusion(updated);
       const idx = allOcclusions.findIndex(o => o.id === updated.id);
       if(idx >= 0) allOcclusions[idx] = updated;
@@ -255,6 +265,7 @@ document.getElementById('deleteOccBtn').addEventListener('click', async () => {
     allOcclusions = allOcclusions.filter(o => o.id !== occ.id);
     rebuildPageIndex();
   }
+  occlusionLayer.clearDraft();
   refreshCurrentPageOverlay(occ.pageNumber);
   clearDetailForm();
 });
@@ -275,20 +286,34 @@ document.getElementById('markCorrectBtn').addEventListener('click', () => record
 document.getElementById('markIncorrectBtn').addEventListener('click', () => recordReview('incorrect'));
 
 /* ---- Keyboard shortcuts ---- */
-// Skip when typing in a field, so labels/tags entry isn't hijacked.
+// Skip when typing in a field, so labels/tags/hint entry isn't hijacked.
 document.addEventListener('keydown', (e) => {
   const tag = (e.target.tagName || '').toLowerCase();
-  if(tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
+  const typing = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
+
+  // Ctrl+Z cancels an unsaved draft even while focused elsewhere
+  if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z'){
+    if(draftOcclusion){ e.preventDefault(); cancelDraft(); return; }
+    return;
+  }
+  if(typing) return;
   if(e.metaKey || e.ctrlKey || e.altKey) return;
 
   switch(e.key.toLowerCase()){
-    case 'r': e.preventDefault(); toggleRevealAll(); break;
+    case ' ': e.preventDefault(); revealNextMask(); break;         // reveal next in order
+    case 'r': e.preventDefault(); toggleRevealAll(); break;        // reveal/hide all
+    case 'w': e.preventDefault(); occlusionLayer.toggleHintOnActive(renderer.getCurrentPage()); break;
     case 'c': if(selectedOcclusion){ e.preventDefault(); recordReview('correct'); } break;
     case 'x': if(selectedOcclusion){ e.preventDefault(); recordReview('incorrect'); } break;
     case '[': e.preventDefault(); renderer.scrollToPage(Math.max(1, renderer.getCurrentPage() - 1)); break;
     case ']': e.preventDefault(); renderer.scrollToPage(Math.min(renderer.getNumPages(), renderer.getCurrentPage() + 1)); break;
   }
 });
+
+function cancelDraft(){
+  occlusionLayer.clearDraft();
+  clearDetailForm();
+}
 
 /* ---- Export ---- */
 

@@ -25,7 +25,7 @@ async function exportPdfWithOcclusions(pdfRecord, occlusions){
     if(!byPage.has(occ.pageNumber)) byPage.set(occ.pageNumber, []);
     byPage.get(occ.pageNumber).push({
       id: occ.id, x: occ.x, y: occ.y, w: occ.w, h: occ.h,
-      label: occ.label || '', tags: occ.tags || [],
+      label: occ.label || '', tags: occ.tags || [], hint: occ.hint || '',
     });
   }
   const pages = [...byPage.entries()].map(([pageNumber, occs]) => ({
@@ -106,6 +106,7 @@ async function applyImportPlan(plan, pdfId, acceptRealigned, acceptUnmatched){
         x: occ.x, y: occ.y, w: occ.w, h: occ.h,
         label: occ.label || '',
         tags: occ.tags || [],
+        hint: occ.hint || '',
         origin: 'imported',
         forkedFrom: null,
         createdAt: Date.now(),
