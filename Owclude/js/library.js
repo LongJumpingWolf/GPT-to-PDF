@@ -121,7 +121,7 @@ async function renderLibrary(){
     `;
     card.addEventListener('click', (e) => {
       if(e.target.closest('.del')) return;
-      window.location.href = `study.html?pdf=${encodeURIComponent(p.id)}`;
+      window.location.href = `/Owclude/study.html?pdf=${encodeURIComponent(p.id)}`;
     });
     card.querySelector('.del').addEventListener('click', async (e) => {
       e.stopPropagation();
