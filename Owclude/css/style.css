@@ -1,0 +1,72 @@
+/* =============================================================================
+   style.css — Owclude shared tokens + layout.
+
+   Palette: Clinical Slate (locked). Fonts match the parent Study Notes app's
+   family: Fraunces for display headings, Inter for UI, IBM Plex Mono for
+   data labels (page numbers, coords, stats).
+   ============================================================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root{
+  --bg:#EEF1F3;
+  --surface:#FFFFFF;
+  --text:#1B2733;
+  --accent:#2A6F77;
+  --accent-strong:#1F565C;
+  --muted:#7C8B96;
+  --border:#D7DEE3;
+  --danger:#B23A3A;
+  --ok:#2E7D4F;
+}
+
+*{ box-sizing:border-box; }
+html,body{
+  margin:0; height:100%;
+  background:var(--bg);
+  color:var(--text);
+  font-family:'Inter',-apple-system,Helvetica,Arial,sans-serif;
+  font-size:14px;
+}
+h1,h2,h3{ font-family:'Fraunces',serif; font-weight:600; margin:0; }
+.mono{ font-family:'IBM Plex Mono',monospace; }
+a{ color:inherit; }
+button{
+  font-family:'Inter',sans-serif;
+  font-size:13px;
+  padding:7px 14px;
+  border:1px solid var(--border);
+  background:var(--surface);
+  color:var(--text);
+  cursor:pointer;
+}
+button:hover{ border-color:var(--accent); }
+button.primary{ background:var(--accent); color:#fff; border-color:var(--accent); }
+button.primary:hover{ background:var(--accent-strong); }
+button.danger{ color:var(--danger); border-color:var(--danger); background:var(--surface); }
+button:disabled{ opacity:.45; cursor:default; }
+input,select,textarea{
+  font-family:'Inter',sans-serif;
+  font-size:13px;
+  border:1px solid var(--border);
+  background:var(--surface);
+  color:var(--text);
+  padding:6px 8px;
+}
+.status{ color:var(--muted); font-size:12px; }
+.hidden{ display:none !important; }
+
+/* ---- App shell (both pages) ---- */
+.appbar{
+  height:52px;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 16px;
+  border-bottom:1px solid var(--border);
+  background:var(--surface);
+  flex:0 0 auto;
+}
+.appbar .left{ display:flex; align-items:center; gap:14px; }
+.appbar .back{ font-size:13px; color:var(--muted); text-decoration:none; }
+.appbar .back:hover{ color:var(--accent); }
+
+.page-wrap{ height:100vh; display:flex; flex-direction:column; }

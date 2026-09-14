@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Owclude — Study</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .study-body{ flex:1; display:flex; overflow:hidden; }
+
+  /* ---- Left: viewer (65%) ---- */
+  .viewer-col{ width:65%; display:flex; flex-direction:column; border-right:1px solid var(--border); }
+  .viewer-toolbar{
+    display:flex; align-items:center; gap:8px; padding:8px 12px;
+    border-bottom:1px solid var(--border); background:var(--surface); flex:0 0 auto;
+    flex-wrap:wrap;
+  }
+  .viewer-toolbar .spacer{ flex:1; }
+  .viewer-scroll{ flex:1; overflow-y:auto; padding:16px; background:var(--bg); }
+  .pagenav{
+    flex:0 0 auto; display:flex; align-items:center; justify-content:center; gap:10px;
+    padding:8px; border-top:1px solid var(--border); background:var(--surface);
+  }
+  .pagenav input{ width:52px; text-align:center; }
+  .occ-box{ box-sizing:border-box; }
+  .toggle-group{ display:flex; border:1px solid var(--border); }
+  .toggle-group button{ border:none; border-right:1px solid var(--border); }
+  .toggle-group button:last-child{ border-right:none; }
+  .toggle-group button.active{ background:var(--accent); color:#fff; }
+
+  /* ---- Right: detail + stats panel (35%) ---- */
+  .panel-col{ width:35%; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:20px; }
+  .panel-section{ background:var(--surface); border:1px solid var(--border); padding:14px; }
+  .panel-section h3{ font-size:14px; margin-bottom:10px; }
+  .panel-empty{ color:var(--muted); font-size:13px; }
+  .tag-chip{
+    display:inline-block; font-size:11.5px; padding:2px 8px; margin:2px 4px 2px 0;
+    border:1px solid var(--border); border-radius:2px; color:var(--muted);
+  }
+  .tag-chip.tier-easy{ color:var(--ok); border-color:var(--ok); }
+  .tag-chip.tier-medium{ color:#8a6d1f; border-color:#8a6d1f; }
+  .tag-chip.tier-difficult{ color:var(--danger); border-color:var(--danger); }
+  .field-row{ margin-bottom:10px; }
+  .field-row label{ display:block; font-size:11.5px; color:var(--muted); margin-bottom:3px; }
+  .field-row input, .field-row textarea{ width:100%; }
+  .review-btns{ display:flex; gap:8px; margin-top:10px; }
+  .review-btns button{ flex:1; }
+  .btn-correct{ border-color:var(--ok); color:var(--ok); }
+  .btn-incorrect{ border-color:var(--danger); color:var(--danger); }
+  .stat-row{ display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-bottom:1px solid var(--border); }
+  .stat-row:last-child{ border-bottom:none; }
+  .stat-label{ color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="page-wrap">
+  <div class="appbar">
+    <div class="left">
+      <a href="index.html" class="back">&larr; Library</a>
+      <h2 id="docTitle">&nbsp;</h2>
+    </div>
+    <div>
+      <button id="exportBtn">Share (.zip)</button>
+    </div>
+  </div>
+
+  <div class="study-body">
+    <div class="viewer-col">
+      <div class="viewer-toolbar">
+        <div class="toggle-group">
+          <button id="modeViewBtn" class="active">View</button>
+          <button id="modeAddBtn">+ Occlusion</button>
+        </div>
+        <div class="toggle-group">
+          <button id="blanketSolidBtn" class="active">Solid</button>
+          <button id="blanketTransparentBtn">Transparent</button>
+        </div>
+        <div class="spacer"></div>
+        <span class="status mono" id="viewerStatus"></span>
+      </div>
+      <div class="viewer-scroll" id="viewerScroll"></div>
+      <div class="pagenav">
+        <button id="prevPageBtn">&larr;</button>
+        <span class="mono">Page <input id="pageInput" type="number" min="1"> / <span id="pageCount">–</span></span>
+        <button id="nextPageBtn">&rarr;</button>
+      </div>
+    </div>
+
+    <div class="panel-col">
+      <div class="panel-section" id="detailSection">
+        <h3>Occlusion</h3>
+        <div id="detailEmpty" class="panel-empty">Select an occlusion, or switch to "+ Occlusion" and drag on the page to create one.</div>
+        <div id="detailForm" class="hidden">
+          <div class="field-row">
+            <label>Label</label>
+            <input id="occLabelInput" placeholder="e.g. Bowman's capsule">
+          </div>
+          <div class="field-row">
+            <label>Tags (comma-separated)</label>
+            <input id="occTagsInput" placeholder="renal, high-yield">
+          </div>
+          <div id="occTierChip"></div>
+          <div class="review-btns">
+            <button class="btn-correct" id="markCorrectBtn">Got it</button>
+            <button class="btn-incorrect" id="markIncorrectBtn">Missed it</button>
+          </div>
+          <div style="margin-top:10px; display:flex; gap:8px;">
+            <button id="saveOccBtn" class="primary">Save</button>
+            <button id="deleteOccBtn" class="danger">Delete</button>
+          </div>
+          <div class="status mono" id="occOriginNote" style="margin-top:8px;"></div>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <h3>Review stats</h3>
+        <div id="statsBody">
+          <div class="panel-empty">No reviews yet.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="js/db.js"></script>
+<script src="js/fingerprint.js"></script>
+<script src="js/srs.js"></script>
+<script src="js/renderer.js"></script>
+<script src="js/occlusion.js"></script>
+<script src="js/export-import.js"></script>
+<script src="js/study.js"></script>
+</body>
+</html>
